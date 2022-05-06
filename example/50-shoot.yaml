@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: 2021 SAP SE or an SAP affiliate company and Gardener contributors
+#
+# SPDX-License-Identifier: Apache-2.0
+
+---
+kind: Shoot
+apiVersion: core.gardener.cloud/v1beta1
+metadata:
+  name: shoot-foo-bar
+  namespace: garden-testing
+  labels:
+    networking.extensions.gardener.cloud/calico: 'true'
+    operatingsystemconfig.extensions.gardener.cloud/ubuntu: 'true'
+    provider.extensions.gardener.cloud/hcloud: 'true'
+    shoot.gardener.cloud/status: healthy
+spec:
+  addons:
+    kubernetesDashboard:
+      enabled: false
+      authenticationMode: token
+    nginxIngress:
+      enabled: false
+      externalTrafficPolicy: Cluster
+  cloudProfileName: hcloud
+  dns:
+    domain: shoot-mng-seed.testing.23ke-run-cb0b.23ke-testbed.23t.dev
+  hibernation:
+    schedules:
+      - start: '00 19 * * 1,2,3,4,5'
+        end: '45 06 * * 1,2,3,4,5'
+        location: Europe/Berlin
+  kubernetes:
+    allowPrivilegedContainers: true
+    kubeAPIServer:
+      enableBasicAuthentication: false
+      requests:
+        maxNonMutatingInflight: 400
+        maxMutatingInflight: 200
+      enableAnonymousAuthentication: false
+      eventTTL: 1h0m0s
+    kubeControllerManager:
+      nodeCIDRMaskSize: 24
+      podEvictionTimeout: 2m0s
+      nodeMonitorGracePeriod: 2m0s
+    kubeProxy:
+      mode: IPTables
+      enabled: true
+    kubelet:
+      failSwapOn: true
+      kubeReserved:
+        cpu: 80m
+        memory: 1Gi
+        pid: 20k
+      imageGCHighThresholdPercent: 50
+      imageGCLowThresholdPercent: 40
+      serializeImagePulls: true
+    version: 1.23.3
+    enableStaticTokenKubeconfig: true
+  networking:
+    type: calico
+    pods: 10.252.0.0/16
+    nodes: 10.251.0.0/16
+    services: 10.253.0.0/16
+  maintenance:
+    autoUpdate:
+      kubernetesVersion: true
+      machineImageVersion: true
+    timeWindow:
+      begin: 030000+0200
+      end: 040000+0200
+  provider:
+    type: hcloud
+    controlPlaneConfig:
+      apiVersion: hcloud.provider.extensions.gardener.cloud/v1alpha1
+      kind: ControlPlaneConfig
+      loadBalancerProvider: provider
+      zone: fsn1-dc14
+    infrastructureConfig:
+      apiVersion: hcloud.provider.extensions.gardener.cloud/v1alpha1
+      kind: InfrastructureConfig
+      networks:
+        workers: 10.251.0.0/16
+    workers:
+      - cri:
+          name: containerd
+        name: worker-cx21
+        machine:
+          type: cx21
+          image:
+            name: ubuntu
+            version: 20.4.20210616
+        maximum: 2
+        minimum: 1
+        maxSurge: 1
+        maxUnavailable: 0
+        volume:
+          size: 50Gi
+        zones:
+          - fsn1-dc14
+        systemComponents:
+          allow: true
+  purpose: evaluation
+  region: fsn1
+  secretBindingName: cloud-secret
+  seedName: my-managed-seed
+  systemComponents:
+    coreDNS:
+      autoscaling:
+        mode: horizontal
+  extensions:
+    - type: mwe
