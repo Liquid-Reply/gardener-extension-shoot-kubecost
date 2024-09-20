@@ -1,27 +1,17 @@
-// Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package reconciler
 
 import (
 	"context"
 
-	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/runtime/inject"
+
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 )
 
 type operationAnnotationWrapper struct {
@@ -34,20 +24,12 @@ type operationAnnotationWrapper struct {
 // removes the Gardener operation annotation before `Reconcile` is called.
 //
 // This is useful in conjunction with the HasOperationAnnotation predicate.
-func OperationAnnotationWrapper(newObjFunc func() client.Object, reconciler reconcile.Reconciler) reconcile.Reconciler {
+func OperationAnnotationWrapper(mgr manager.Manager, newObjFunc func() client.Object, reconciler reconcile.Reconciler) reconcile.Reconciler {
 	return &operationAnnotationWrapper{
+		client:     mgr.GetClient(),
 		newObjFunc: newObjFunc,
 		Reconciler: reconciler,
 	}
-}
-
-func (o *operationAnnotationWrapper) InjectClient(client client.Client) error {
-	o.client = client
-	return nil
-}
-
-func (o *operationAnnotationWrapper) InjectFunc(f inject.Func) error {
-	return f(o.Reconciler)
 }
 
 func (o *operationAnnotationWrapper) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {

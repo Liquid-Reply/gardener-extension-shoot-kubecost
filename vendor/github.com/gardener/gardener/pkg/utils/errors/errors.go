@@ -1,16 +1,6 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package errors
 
@@ -30,7 +20,7 @@ func (w *withSuppressed) Error() string {
 	return fmt.Sprintf("%s, suppressed: %s", w.cause.Error(), w.suppressed.Error())
 }
 
-func (w *withSuppressed) Cause() error {
+func (w *withSuppressed) Unwrap() error {
 	return w.cause
 }
 
@@ -38,9 +28,10 @@ func (w *withSuppressed) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
 		if s.Flag('+') {
-			_, _ = fmt.Fprintf(s, "%+v\nsuppressed: %+v", w.Cause(), w.suppressed)
+			_, _ = fmt.Fprintf(s, "%+v\nsuppressed: %+v", w.Unwrap(), w.suppressed)
 			return
 		}
+
 		fallthrough
 	case 's', 'q':
 		_, _ = io.WriteString(s, w.Error())
@@ -54,9 +45,10 @@ func (w *withSuppressed) Suppressed() error {
 // Suppressed retrieves the suppressed error of the given error, if any.
 // An error has a suppressed error if it implements the following interface:
 //
-//     type suppressor interface {
-//            Suppressed() error
-//     }
+//	type suppressor interface {
+//	       Suppressed() error
+//	}
+//
 // If the error does not implement the interface, nil is returned.
 func Suppressed(err error) error {
 	type suppressor interface {
@@ -82,7 +74,7 @@ func WithSuppressed(err, suppressed error) error {
 	}
 }
 
-// reconciliationError implements ErrorIDer and Causer
+// reconciliationError implements ErrorIDer
 type reconciliationError struct {
 	error
 	errorID string
@@ -98,8 +90,7 @@ func (t *reconciliationError) ErrorID() string {
 	return t.errorID
 }
 
-// Cause implements the causer interface and returns the underlying error
-func (t *reconciliationError) Cause() error {
+func (t *reconciliationError) Unwrap() error {
 	return t.error
 }
 
@@ -111,6 +102,7 @@ func GetID(err error) string {
 	}
 
 	var id string
+
 	if err != nil {
 		if errWithID, ok := err.(errorIDer); ok {
 			id = errWithID.ErrorID()
@@ -159,23 +151,6 @@ func (e *ErrorContext) HasLastErrorWithID(errorID string) bool {
 	return false
 }
 
-type cancelError struct{}
-
-func (*cancelError) Error() string {
-	return "Canceled"
-}
-
-// Cancel returns an error which will cause the HandleErrors function to stop executing tasks without triggering its FailureHandler.
-func Cancel() error {
-	return &cancelError{}
-}
-
-// WasCanceled checks to see if the HandleErrors function was canceled manually. It can be used to check if execution after HandleErrors should be stopped without returning an error
-func WasCanceled(err error) bool {
-	_, ok := err.(*cancelError)
-	return ok
-}
-
 // FailureHandler is a function which is called when an error occurs
 type FailureHandler func(string, error) error
 
@@ -199,7 +174,7 @@ func defaultFailureHandler(errorID string, err error) error {
 	return WithID(errorID, err)
 }
 
-//ToExecute takes an errorID and a function and creates a TaskFunc from them.
+// ToExecute takes an errorID and a function and creates a TaskFunc from them.
 func ToExecute(errorID string, task func() error) TaskFunc {
 	return taskFunc(func(errorContext *ErrorContext) (string, error) {
 		errorContext.AddErrorID(errorID)
@@ -218,14 +193,11 @@ func ToExecute(errorID string, task func() error) TaskFunc {
 func HandleErrors(errorContext *ErrorContext, onSuccess SuccessHandler, onFailure FailureHandler, tasks ...TaskFunc) error {
 	for _, task := range tasks {
 		errorID, err := task.Do(errorContext)
-		if err != nil && !WasCanceled(err) {
+		if err != nil {
 			return handleFailure(onFailure, errorID, err)
 		}
 		if handlerErr := handleSuccess(errorContext, onSuccess, errorID); handlerErr != nil {
 			return handlerErr
-		}
-		if WasCanceled(err) {
-			return err
 		}
 	}
 	return nil

@@ -1,29 +1,20 @@
-// Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package health
 
 import (
 	"fmt"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	v1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
-
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // CheckExtensionObject checks if an extension Object is healthy or not.
@@ -32,6 +23,7 @@ import (
 // * No gardener.cloud/operation is set
 // * No lastError is in the status
 // * A last operation is state succeeded is present
+// * gardener.cloud/timestamp annotation is not set or if its truncated value is not after last update time
 func CheckExtensionObject(o client.Object) error {
 	obj, ok := o.(extensionsv1alpha1.Object)
 	if !ok {
@@ -44,7 +36,7 @@ func CheckExtensionObject(o client.Object) error {
 
 // ExtensionOperationHasBeenUpdatedSince returns a health check function that checks if an extension Object's last
 // operation has been updated since `lastUpdateTime`.
-func ExtensionOperationHasBeenUpdatedSince(lastUpdateTime v1.Time) Func {
+func ExtensionOperationHasBeenUpdatedSince(lastUpdateTime metav1.Time) Func {
 	return func(o client.Object) error {
 		obj, ok := o.(extensionsv1alpha1.Object)
 		if !ok {
@@ -62,7 +54,7 @@ func ExtensionOperationHasBeenUpdatedSince(lastUpdateTime v1.Time) Func {
 // checkExtensionObject checks if an extension Object is healthy or not.
 func checkExtensionObject(generation int64, observedGeneration int64, annotations map[string]string, lastError *gardencorev1beta1.LastError, lastOperation *gardencorev1beta1.LastOperation) error {
 	if lastError != nil {
-		return v1beta1helper.NewErrorWithCodes(fmt.Sprintf("error during reconciliation: %s", lastError.Description), lastError.Codes...)
+		return v1beta1helper.NewErrorWithCodes(fmt.Errorf("error during reconciliation: %s", lastError.Description), lastError.Codes...)
 	}
 
 	if observedGeneration != generation {
@@ -81,16 +73,22 @@ func checkExtensionObject(generation int64, observedGeneration int64, annotation
 		return fmt.Errorf("extension state is not succeeded but %v", lastOperation.State)
 	}
 
-	return nil
-}
+	if timestamp, ok := annotations[v1beta1constants.GardenerTimestamp]; ok {
+		parsedTimestamp, err := time.Parse(time.RFC3339Nano, timestamp)
+		if err != nil {
+			return fmt.Errorf("cannot parse gardener.cloud/timestamp annotation: %w", err)
+		}
 
-// CheckBackupBucket checks if an backup bucket object is healthy or not.
-func CheckBackupBucket(obj client.Object) error {
-	bb, ok := obj.(*gardencorev1beta1.BackupBucket)
-	if !ok {
-		return fmt.Errorf("expected *gardencorev1beta1.BackupBucket but got %T", obj)
+		if parsedTimestamp.Truncate(time.Second).UTC().After(lastOperation.LastUpdateTime.Time.UTC()) {
+			return fmt.Errorf(
+				"extension is not reconciled yet - reconciliation requested at %s, last update time is: %s",
+				parsedTimestamp.Truncate(time.Second).UTC().Format(time.RFC3339),
+				lastOperation.LastUpdateTime.Time.UTC().Format(time.RFC3339),
+			)
+		}
 	}
-	return checkExtensionObject(bb.Generation, bb.Status.ObservedGeneration, bb.Annotations, bb.Status.LastError, bb.Status.LastOperation)
+
+	return nil
 }
 
 // CheckBackupEntry checks if an backup entry object is healthy or not.

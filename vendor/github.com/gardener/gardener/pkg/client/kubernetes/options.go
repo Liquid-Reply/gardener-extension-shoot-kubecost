@@ -1,16 +1,6 @@
-// Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package kubernetes
 
@@ -20,19 +10,22 @@ import (
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	baseconfig "k8s.io/component-base/config"
+	componentbaseconfig "k8s.io/component-base/config"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Config carries options for new ClientSets.
 type Config struct {
+	runtimeAPIReader client.Reader
+	runtimeClient    client.Client
+	runtimeCache     cache.Cache
+
 	newRuntimeCache   cache.NewCacheFunc
 	clientOptions     client.Options
 	restConfig        *rest.Config
-	cacheResync       *time.Duration
+	cacheSyncPeriod   *time.Duration
 	disableCache      bool
-	uncachedObjects   []client.Object
 	allowedUserFields []string
 	clientConfig      clientcmd.ClientConfig
 }
@@ -56,10 +49,34 @@ func WithRESTConfig(restConfig *rest.Config) ConfigFunc {
 	}
 }
 
+// WithRuntimeAPIReader returns a ConfigFunc that sets the passed runtimeAPIReader on the Config object.
+func WithRuntimeAPIReader(runtimeAPIReader client.Reader) ConfigFunc {
+	return func(config *Config) error {
+		config.runtimeAPIReader = runtimeAPIReader
+		return nil
+	}
+}
+
+// WithRuntimeClient returns a ConfigFunc that sets the passed runtimeClient on the Config object.
+func WithRuntimeClient(runtimeClient client.Client) ConfigFunc {
+	return func(config *Config) error {
+		config.runtimeClient = runtimeClient
+		return nil
+	}
+}
+
+// WithRuntimeCache returns a ConfigFunc that sets the passed runtimeCache on the Config object.
+func WithRuntimeCache(runtimeCache cache.Cache) ConfigFunc {
+	return func(config *Config) error {
+		config.runtimeCache = runtimeCache
+		return nil
+	}
+}
+
 // WithClientConnectionOptions returns a ConfigFunc that transfers settings from
 // the passed ClientConnectionConfiguration.
 // The kubeconfig location in ClientConnectionConfiguration is disregarded, though!
-func WithClientConnectionOptions(cfg baseconfig.ClientConnectionConfiguration) ConfigFunc {
+func WithClientConnectionOptions(cfg componentbaseconfig.ClientConnectionConfiguration) ConfigFunc {
 	return func(config *Config) error {
 		if config.restConfig == nil {
 			return errors.New("REST config must be set before setting connection options")
@@ -80,10 +97,10 @@ func WithClientOptions(opt client.Options) ConfigFunc {
 	}
 }
 
-// WithCacheResyncPeriod returns a ConfigFunc that set the client's cache's resync period to the given duration.
-func WithCacheResyncPeriod(resync time.Duration) ConfigFunc {
+// WithCacheSyncPeriod returns a ConfigFunc that set the client's cache's sync period to the given duration.
+func WithCacheSyncPeriod(sync time.Duration) ConfigFunc {
 	return func(config *Config) error {
-		config.cacheResync = &resync
+		config.cacheSyncPeriod = &sync
 		return nil
 	}
 }
@@ -93,14 +110,6 @@ func WithCacheResyncPeriod(resync time.Duration) ConfigFunc {
 func WithDisabledCachedClient() ConfigFunc {
 	return func(config *Config) error {
 		config.disableCache = true
-		return nil
-	}
-}
-
-// WithUncached disables the cached client for the specified objects' GroupKinds.
-func WithUncached(objs ...client.Object) ConfigFunc {
-	return func(config *Config) error {
-		config.uncachedObjects = append(config.uncachedObjects, objs...)
 		return nil
 	}
 }

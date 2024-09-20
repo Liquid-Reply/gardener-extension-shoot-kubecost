@@ -1,22 +1,15 @@
-// Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package gardener
 
 import (
+	"errors"
 	"fmt"
-	"strings"
+	"slices"
+
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 )
 
 const (
@@ -32,12 +25,6 @@ const (
 	// DNSZone is the key for an annotation on a Kubernetes Secret object whose value must point to a valid
 	// DNS hosted zone id.
 	DNSZone = "dns.gardener.cloud/zone"
-	// DNSIncludeZones is the key for an annotation on a Kubernetes Secret object whose value must point to a list
-	// of zones that shall be included.
-	DNSIncludeZones = "dns.gardener.cloud/include-zones"
-	// DNSExcludeZones is the key for an annotation on a Kubernetes Secret object whose value must point to a list
-	// of zones that shall be excluded.
-	DNSExcludeZones = "dns.gardener.cloud/exclude-zones"
 
 	// APIServerFQDNPrefix is the part of a FQDN which will be used to construct the domain name for the kube-apiserver of
 	// a Shoot cluster. For example, when a Shoot specifies domain 'cluster.example.com', the apiserver domain would be
@@ -55,12 +42,22 @@ const (
 	// configured internal domain already contains it, it won't be added twice. If it does not contain it, it will be
 	// appended.
 	InternalDomainKey = "internal"
+
+	// AnnotationKeyIPStack is the annotation key to set the IP stack for a DNSRecord.
+	// This can be used to create different type of records, e.g. A vs. AAAA records.
+	AnnotationKeyIPStack = "dns.gardener.cloud/ip-stack"
+	// AnnotationValueIPStackIPv4 is the annotation value for ipv4-only.
+	AnnotationValueIPStackIPv4 = "ipv4"
+	// AnnotationValueIPStackIPv6 is the annotation value for ipv6-only.
+	AnnotationValueIPStackIPv6 = "ipv6"
+	// AnnotationValueIPStackIPDualStack is the annotation value for dual-stack, i.e. ipv4 and ipv6.
+	AnnotationValueIPStackIPDualStack = "dual-stack"
 )
 
 // GetDomainInfoFromAnnotations returns the provider, domain, and zones that are specified in the given annotations.
-func GetDomainInfoFromAnnotations(annotations map[string]string) (provider string, domain string, zone string, includeZones, excludeZones []string, err error) {
+func GetDomainInfoFromAnnotations(annotations map[string]string) (provider string, domain string, zone string, err error) {
 	if annotations == nil {
-		return "", "", "", nil, nil, fmt.Errorf("domain secret has no annotations")
+		return "", "", "", errors.New("domain secret has no annotations")
 	}
 
 	if providerAnnotation, ok := annotations[DNSProvider]; ok {
@@ -75,18 +72,11 @@ func GetDomainInfoFromAnnotations(annotations map[string]string) (provider strin
 		zone = zoneAnnotation
 	}
 
-	if includeZonesAnnotation, ok := annotations[DNSIncludeZones]; ok {
-		includeZones = strings.Split(includeZonesAnnotation, ",")
-	}
-	if excludeZonesAnnotation, ok := annotations[DNSExcludeZones]; ok {
-		excludeZones = strings.Split(excludeZonesAnnotation, ",")
-	}
-
 	if len(domain) == 0 {
-		return "", "", "", nil, nil, fmt.Errorf("missing dns domain annotation on domain secret")
+		return "", "", "", fmt.Errorf("missing dns domain annotation on domain secret")
 	}
 	if len(provider) == 0 {
-		return "", "", "", nil, nil, fmt.Errorf("missing dns provider annotation on domain secret")
+		return "", "", "", fmt.Errorf("missing dns provider annotation on domain secret")
 	}
 
 	return
@@ -116,4 +106,18 @@ func GenerateDNSProviderName(secretName, providerType string) string {
 	default:
 		return ""
 	}
+}
+
+func getIPStackForFamilies(ipFamilies []gardencorev1beta1.IPFamily) string {
+	if gardencorev1beta1.IsIPv4SingleStack(ipFamilies) {
+		return AnnotationValueIPStackIPv4
+	}
+	if gardencorev1beta1.IsIPv6SingleStack(ipFamilies) {
+		return AnnotationValueIPStackIPv6
+	}
+	if len(ipFamilies) == 2 && slices.Contains(ipFamilies, gardencorev1beta1.IPFamilyIPv4) && slices.Contains(ipFamilies, gardencorev1beta1.IPFamilyIPv6) {
+		return AnnotationValueIPStackIPDualStack
+	}
+	// Fall-back to IPv4 per default
+	return AnnotationValueIPStackIPv4
 }

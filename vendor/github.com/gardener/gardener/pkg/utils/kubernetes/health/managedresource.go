@@ -1,16 +1,6 @@
-// Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package health
 
@@ -61,6 +51,20 @@ func CheckManagedResourceHealthy(mr *resourcesv1alpha1.ManagedResource) error {
 		return fmt.Errorf("condition %s for managed resource %s/%s has not been reported yet", resourcesv1alpha1.ResourcesHealthy, mr.GetNamespace(), mr.GetName())
 	} else if conditionHealthy.Status != gardencorev1beta1.ConditionTrue {
 		return fmt.Errorf("condition %s of managed resource %s/%s is %s: %s", resourcesv1alpha1.ResourcesHealthy, mr.GetNamespace(), mr.GetName(), conditionHealthy.Status, conditionHealthy.Message)
+	}
+
+	return nil
+}
+
+// CheckManagedResourceProgressing checks if the condition ResourcesProgressing of a ManagedResource is False.
+func CheckManagedResourceProgressing(mr *resourcesv1alpha1.ManagedResource) error {
+	status := mr.Status
+	conditionProgressing := v1beta1helper.GetCondition(status.Conditions, resourcesv1alpha1.ResourcesProgressing)
+
+	if conditionProgressing == nil {
+		return fmt.Errorf("condition %s for managed resource %s/%s has not been reported yet", resourcesv1alpha1.ResourcesProgressing, mr.GetNamespace(), mr.GetName())
+	} else if conditionProgressing.Status != gardencorev1beta1.ConditionFalse {
+		return fmt.Errorf("condition %s of managed resource %s/%s is %s: %s", resourcesv1alpha1.ResourcesProgressing, mr.GetNamespace(), mr.GetName(), conditionProgressing.Status, conditionProgressing.Message)
 	}
 
 	return nil

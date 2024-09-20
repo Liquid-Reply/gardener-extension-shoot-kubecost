@@ -1,18 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# Copyright (c) 2022 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+# SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -20,7 +10,7 @@ usage() {
   echo "Usage:"
   echo "> compare-k8s-controllers.sh [ -h | <old version> <new version> ]"
   echo
-  echo ">> For example: compare-k8s-controllers.sh 1.22 1.23"
+  echo ">> For example: compare-k8s-controllers.sh 1.26 1.27"
 
   exit 0
 }
@@ -31,8 +21,11 @@ fi
 
 versions=("$1" "$2")
 
-out_dir=dev/temp
-mkdir -p "${out_dir}"
+out_dir=$(mktemp -d)
+function cleanup_output {
+    rm -rf "$out_dir"
+}
+trap cleanup_output EXIT
 
 kcm_dir="cmd/kube-controller-manager/app"
 ccm_dir="staging/src/k8s.io/cloud-provider/app"
@@ -46,7 +39,7 @@ for version in "${versions[@]}"; do
   git sparse-checkout set "$kcm_dir" "$ccm_dir"
   popd > /dev/null
 
-  for dir in $kcm_dir $ccm_dir; do
+  for dir in $kcm_dir; do
     cat "${out_dir}/kubernetes-${version}/$dir/"*.go |\
       sed -rn "s/.*[Client|Config]OrDie\(\"(.*)\"\).*/\1/p" |\
       grep -vE "informers|discovery" |\
@@ -54,7 +47,6 @@ for version in "${versions[@]}"; do
       uniq >> "${out_dir}/k8s-controllers-${version}.txt"
   done
 
-  # Starting with release-v1.23 the names for the CCM controllers are maintained differently.
   cat "${out_dir}/kubernetes-${version}/$ccm_dir/controllermanager.go" |\
     sed -rn "s/.*ClientName: \"(.*)\",.*/\1/p" |\
     sort |\

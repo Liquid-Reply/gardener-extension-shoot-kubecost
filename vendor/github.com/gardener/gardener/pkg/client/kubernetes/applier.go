@@ -1,16 +1,6 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package kubernetes
 
@@ -21,8 +11,6 @@ import (
 	"io"
 	"strings"
 
-	utilerrors "github.com/gardener/gardener/pkg/utils/errors"
-
 	"github.com/hashicorp/go-multierror"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +20,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	errorsutils "github.com/gardener/gardener/pkg/utils/errors"
 )
 
 // defaultApplier applies objects by retrieving their current state and then either creating / updating them
@@ -149,7 +139,7 @@ var (
 
 			annotations, found, _ := unstructured.NestedMap(oldObj.Object, "metadata", "annotations")
 			if found {
-				mergedAnnotations := make(map[string]interface{})
+				mergedAnnotations := make(map[string]any)
 				for key, value := range annotations {
 					annotation := key
 					annotationValue := value.(string)
@@ -184,15 +174,15 @@ var (
 					break
 				}
 
-				ports := make([]interface{}, 0, len(newPorts))
+				ports := make([]any, 0, len(newPorts))
 				for _, newPort := range newPorts {
-					np := newPort.(map[string]interface{})
+					np := newPort.(map[string]any)
 					npName, _, _ := unstructured.NestedString(np, "name")
 					npPort, _ := nestedFloat64OrInt64(np, "port")
 					nodePort, ok := nestedFloat64OrInt64(np, "nodePort")
 
 					for _, oldPortObj := range oldPorts {
-						op := oldPortObj.(map[string]interface{})
+						op := oldPortObj.(map[string]any)
 						opName, _, _ := unstructured.NestedString(op, "name")
 						opPort, _ := nestedFloat64OrInt64(op, "port")
 
@@ -225,8 +215,8 @@ var (
 
 			if oldSvcType == string(corev1.ServiceTypeLoadBalancer) &&
 				newSvcType == string(corev1.ServiceTypeLoadBalancer) &&
-				newETP == string(corev1.ServiceExternalTrafficPolicyTypeLocal) &&
-				oldETP == string(corev1.ServiceExternalTrafficPolicyTypeLocal) {
+				newETP == string(corev1.ServiceExternalTrafficPolicyLocal) &&
+				oldETP == string(corev1.ServiceExternalTrafficPolicyLocal) {
 				newHealthCheckPort, _ := nestedFloat64OrInt64(newObj.Object, "spec", "healthCheckNodePort")
 				if newHealthCheckPort == 0 {
 					oldHealthCheckPort, _ := nestedFloat64OrInt64(oldObj.Object, "spec", "healthCheckNodePort")
@@ -257,7 +247,7 @@ var (
 	})
 )
 
-func nestedFloat64OrInt64(obj map[string]interface{}, fields ...string) (int64, bool) {
+func nestedFloat64OrInt64(obj map[string]any, fields ...string) (int64, bool) {
 	val, found, err := unstructured.NestedFieldNoCopy(obj, fields...)
 	if !found || err != nil {
 		return 0, found
@@ -295,7 +285,7 @@ func (a *defaultApplier) mergeObjects(newObj, oldObj *unstructured.Unstructured,
 	newObj.SetResourceVersion(oldObj.GetResourceVersion())
 
 	// We do not want to overwrite the Finalizers.
-	newObj.Object["metadata"].(map[string]interface{})["finalizers"] = oldObj.Object["metadata"].(map[string]interface{})["finalizers"]
+	newObj.Object["metadata"].(map[string]any)["finalizers"] = oldObj.Object["metadata"].(map[string]any)["finalizers"]
 
 	if merge, ok := mergeFuncs[newObj.GroupVersionKind().GroupKind()]; ok {
 		merge(newObj, oldObj)
@@ -309,7 +299,7 @@ func (a *defaultApplier) mergeObjects(newObj, oldObj *unstructured.Unstructured,
 // already exists at the API server, it will update it. It returns an error as soon as the first error occurs.
 func (a *defaultApplier) ApplyManifest(ctx context.Context, r UnstructuredReader, options MergeFuncs) error {
 	allErrs := &multierror.Error{
-		ErrorFormat: utilerrors.NewErrorFormatFuncWithPrefix("failed to apply manifests"),
+		ErrorFormat: errorsutils.NewErrorFormatFuncWithPrefix("failed to apply manifests"),
 	}
 
 	for {
@@ -339,7 +329,7 @@ func (a *defaultApplier) ApplyManifest(ctx context.Context, r UnstructuredReader
 // It returns an error as soon as the first error occurs.
 func (a *defaultApplier) DeleteManifest(ctx context.Context, r UnstructuredReader, opts ...DeleteManifestOption) error {
 	allErrs := &multierror.Error{
-		ErrorFormat: utilerrors.NewErrorFormatFuncWithPrefix("failed to delete manifests"),
+		ErrorFormat: errorsutils.NewErrorFormatFuncWithPrefix("failed to delete manifests"),
 	}
 
 	deleteOps := &DeleteManifestOptions{}
@@ -395,7 +385,7 @@ type manifestReader struct {
 func (m *manifestReader) Read() (*unstructured.Unstructured, error) {
 	// loop for skipping empty yaml objects
 	for {
-		var data map[string]interface{}
+		var data map[string]any
 
 		err := m.decoder.Decode(&data)
 		if err == io.EOF {

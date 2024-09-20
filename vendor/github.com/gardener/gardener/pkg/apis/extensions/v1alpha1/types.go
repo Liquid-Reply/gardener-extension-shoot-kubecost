@@ -1,16 +1,6 @@
-// Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package v1alpha1
 
@@ -59,6 +49,8 @@ type Status interface {
 type Spec interface {
 	// GetExtensionType retrieves the extension type.
 	GetExtensionType() string
+	// GetExtensionClass retrieves the extension class.
+	GetExtensionClass() *ExtensionClass
 	// GetExtensionPurpose retrieves the extension purpose.
 	GetExtensionPurpose() *string
 	// GetProviderConfig retrieves the provider config.
@@ -81,3 +73,13 @@ type Object interface {
 // Note that this annotation is alpha and can be removed anytime without further notice. Only use it if you know
 // what you do.
 const ShootAlphaCSIMigrationKubernetesVersion = "alpha.csimigration.shoot.extensions.gardener.cloud/kubernetes-version"
+
+// IPFamily is a type for specifying an IP protocol version to use in Gardener clusters.
+type IPFamily string
+
+const (
+	// IPFamilyIPv4 is the IPv4 IP family.
+	IPFamilyIPv4 IPFamily = "IPv4"
+	// IPFamilyIPv6 is the IPv6 IP family.
+	IPFamilyIPv6 IPFamily = "IPv6"
+)

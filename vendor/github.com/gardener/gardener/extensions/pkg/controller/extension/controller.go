@@ -1,31 +1,22 @@
-// Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package extension
 
 import (
+	"context"
 	"time"
-
-	extensionspredicate "github.com/gardener/gardener/extensions/pkg/predicate"
-	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
-	"github.com/gardener/gardener/pkg/controllerutils/mapper"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	extensionspredicate "github.com/gardener/gardener/extensions/pkg/predicate"
+	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
+	"github.com/gardener/gardener/pkg/controllerutils/mapper"
 )
 
 const (
@@ -53,38 +44,40 @@ type AddArgs struct {
 	Type string
 	// IgnoreOperationAnnotation specifies whether to ignore the operation annotation or not.
 	// If the annotation is not ignored, the extension controller will only reconcile
-	// with a present operation annotation typically set during a reconcile (e.g in the maintenance time) by the Gardenlet
+	// with a present operation annotation typically set during a reconcile (e.g. in the maintenance time) by the Gardenlet
 	IgnoreOperationAnnotation bool
+	// ExtensionClass defines the extension class this extension is responsible for.
+	ExtensionClass extensionsv1alpha1.ExtensionClass
 }
 
 // Add adds an Extension controller to the given manager using the given AddArgs.
-func Add(mgr manager.Manager, args AddArgs) error {
-	args.ControllerOptions.Reconciler = NewReconciler(args)
-	args.ControllerOptions.RecoverPanic = true
-	return add(mgr, args)
+func Add(ctx context.Context, mgr manager.Manager, args AddArgs) error {
+	args.ControllerOptions.Reconciler = NewReconciler(mgr, args)
+	return add(ctx, mgr, args)
 }
 
 // DefaultPredicates returns the default predicates for an extension reconciler.
-func DefaultPredicates(ignoreOperationAnnotation bool) []predicate.Predicate {
-	return extensionspredicate.DefaultControllerPredicates(ignoreOperationAnnotation, extensionspredicate.ShootNotFailedPredicate())
+func DefaultPredicates(ctx context.Context, mgr manager.Manager, ignoreOperationAnnotation bool) []predicate.Predicate {
+	return extensionspredicate.DefaultControllerPredicates(ignoreOperationAnnotation, extensionspredicate.ShootNotFailedPredicate(ctx, mgr))
 }
 
-func add(mgr manager.Manager, args AddArgs) error {
+func add(ctx context.Context, mgr manager.Manager, args AddArgs) error {
 	ctrl, err := controller.New(args.Name, mgr, args.ControllerOptions)
 	if err != nil {
 		return err
 	}
 
 	predicates := extensionspredicate.AddTypePredicate(args.Predicates, args.Type)
+	predicates = append(predicates, extensionspredicate.HasClass(args.ExtensionClass))
 
 	if args.IgnoreOperationAnnotation {
 		if err := ctrl.Watch(
-			&source.Kind{Type: &extensionsv1alpha1.Cluster{}},
-			mapper.EnqueueRequestsFrom(ClusterToExtensionMapper(predicates...), mapper.UpdateWithNew),
+			source.Kind(mgr.GetCache(), &extensionsv1alpha1.Cluster{}),
+			mapper.EnqueueRequestsFrom(ctx, mgr.GetCache(), ClusterToExtensionMapper(mgr, predicates...), mapper.UpdateWithNew, mgr.GetLogger().WithName(args.Name)),
 		); err != nil {
 			return err
 		}
 	}
 
-	return ctrl.Watch(&source.Kind{Type: &extensionsv1alpha1.Extension{}}, &handler.EnqueueRequestForObject{}, predicates...)
+	return ctrl.Watch(source.Kind(mgr.GetCache(), &extensionsv1alpha1.Extension{}), &handler.EnqueueRequestForObject{}, predicates...)
 }

@@ -4,7 +4,7 @@ This is a small tool that manages binaries for envtest. It can be used to
 download new binaries, list currently installed and available ones, and
 clean up versions.
 
-To use it, just go-install it on 1.16+ (it's a separate, self-contained
+To use it, just go-install it on 1.19+ (it's a separate, self-contained
 module):
 
 ```shell
@@ -45,7 +45,7 @@ setup-envtest sideload 1.16.2 < downloaded-envtest.tar.gz
 ## Where does it put all those binaries?
 
 By default, binaries are stored in a subdirectory of an OS-specific data
-directory, as per the OS's conventions. 
+directory, as per the OS's conventions.
 
 On Linux, this is `$XDG_DATA_HOME`; on Windows, `%LocalAppData`; and on
 OSX, `~/Library/Application Support`.
@@ -91,7 +91,7 @@ Then, you have a few options for managing your binaries:
   `--use-env` makes the command unconditionally use the value of
   KUBEBUILDER_ASSETS as long as it contains the required binaries, and
   `-i` indicates that we only ever want to work with installed binaries
-  (no reaching out the the remote GCS storage).
+  (no reaching out the remote GCS storage).
 
   As noted about, you can use `ENVTEST_INSTALLED_ONLY=true` to switch `-i`
   on by default, and you can use `ENVTEST_USE_ENV=true` to switch

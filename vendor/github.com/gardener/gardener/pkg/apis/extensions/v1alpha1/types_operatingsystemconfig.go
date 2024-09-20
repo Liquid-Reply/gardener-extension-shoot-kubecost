@@ -1,21 +1,12 @@
-// Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -53,7 +44,6 @@ func (o *OperatingSystemConfig) GetExtensionSpec() Spec {
 // GetExtensionPurpose implements Object.
 func (o *OperatingSystemConfigSpec) GetExtensionPurpose() *string {
 	return (*string)(&o.Purpose)
-
 }
 
 // GetExtensionStatus implements Object.
@@ -82,15 +72,9 @@ type OperatingSystemConfigSpec struct {
 	DefaultSpec `json:",inline"`
 	// Purpose describes how the result of this OperatingSystemConfig is used by Gardener. Either it
 	// gets sent to the `Worker` extension controller to bootstrap a VM, or it is downloaded by the
-	// cloud-config-downloader script already running on a bootstrapped VM.
+	// gardener-node-agent already running on a bootstrapped VM.
 	// This field is immutable.
 	Purpose OperatingSystemConfigPurpose `json:"purpose"`
-	// ReloadConfigFilePath is the path to the generated operating system configuration. If set, controllers
-	// are asked to use it when determining the .status.command of this resource. For example, if for CoreOS
-	// the reload-path might be "/var/lib/config"; then the controller shall set .status.command to
-	// "/usr/bin/coreos-cloudinit --from-file=/var/lib/config".
-	// +optional
-	ReloadConfigFilePath *string `json:"reloadConfigFilePath,omitempty"`
 	// Units is a list of unit for the operating system configuration (usually, a systemd unit).
 	// +patchMergeKey=name
 	// +patchStrategy=merge
@@ -109,7 +93,7 @@ type Unit struct {
 	Name string `json:"name"`
 	// Command is the unit's command.
 	// +optional
-	Command *string `json:"command,omitempty"`
+	Command *UnitCommand `json:"command,omitempty"`
 	// Enable describes whether the unit is enabled or not.
 	// +optional
 	Enable *bool `json:"enable,omitempty"`
@@ -121,7 +105,22 @@ type Unit struct {
 	// +patchStrategy=merge
 	// +optional
 	DropIns []DropIn `json:"dropIns,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+	// FilePaths is a list of files the unit depends on. If any file changes a restart of the dependent unit will be
+	// triggered. For each FilePath there must exist a File with matching Path in OperatingSystemConfig.Spec.Files.
+	FilePaths []string `json:"filePaths,omitempty"`
 }
+
+// UnitCommand is a string alias.
+type UnitCommand string
+
+const (
+	// CommandStart is the 'start' command for a unit.
+	CommandStart UnitCommand = "start"
+	// CommandRestart is the 'restart' command for a unit.
+	CommandRestart UnitCommand = "restart"
+	// CommandStop is the 'stop' command for a unit.
+	CommandStop UnitCommand = "stop"
+)
 
 // DropIn is a drop-in configuration for a systemd unit.
 type DropIn struct {
@@ -137,7 +136,7 @@ type File struct {
 	// Path is the path of the file system where the file should get written to.
 	Path string `json:"path"`
 	// Permissions describes with which permissions the file should get written to the file system.
-	// Should be defaulted to octal 0644.
+	// If no permissions are set, the operating system's defaults are used.
 	// +optional
 	Permissions *int32 `json:"permissions,omitempty"`
 	// Content describe the file's content.
@@ -156,6 +155,9 @@ type FileContent struct {
 	// This for example can be used to manipulate the clear-text content before it reaches the node.
 	// +optional
 	TransmitUnencoded *bool `json:"transmitUnencoded,omitempty"`
+	// ImageRef describes a container image which contains a file.
+	// +optional
+	ImageRef *FileContentImageRef `json:"imageRef,omitempty"`
 }
 
 // FileContentSecretRef contains keys for referencing a file content's data from a secret in the same namespace.
@@ -174,23 +176,32 @@ type FileContentInline struct {
 	Data string `json:"data"`
 }
 
+// FileContentImageRef describes a container image which contains a file
+type FileContentImageRef struct {
+	// Image contains the container image repository with tag.
+	Image string `json:"image"`
+	// FilePathInImage contains the path in the image to the file that should be extracted.
+	FilePathInImage string `json:"filePathInImage"`
+}
+
 // OperatingSystemConfigStatus is the status for a OperatingSystemConfig resource.
 type OperatingSystemConfigStatus struct {
 	// DefaultStatus is a structure containing common fields used by all extension resources.
 	DefaultStatus `json:",inline"`
+	// ExtensionUnits is a list of additional systemd units provided by the extension.
+	// +patchMergeKey=name
+	// +patchStrategy=merge
+	// +optional
+	ExtensionUnits []Unit `json:"extensionUnits,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+	// ExtensionFiles is a list of additional files provided by the extension.
+	// +patchMergeKey=path
+	// +patchStrategy=merge
+	// +optional
+	ExtensionFiles []File `json:"extensionFiles,omitempty" patchStrategy:"merge" patchMergeKey:"path"`
 	// CloudConfig is a structure for containing the generated output for the given operating system
 	// config spec. It contains a reference to a secret as the result may contain confidential data.
 	// +optional
 	CloudConfig *CloudConfig `json:"cloudConfig,omitempty"`
-	// Command is the command whose execution renews/reloads the cloud config on an existing VM, e.g.
-	// "/usr/bin/reload-cloud-config -from-file=<path>". The <path> is optionally provided by Gardener
-	// in the .spec.reloadConfigFilePath field.
-	// +optional
-	Command *string `json:"command,omitempty"`
-	// Units is a list of systemd unit names that are part of the generated Cloud Config and shall be
-	// restarted when a new version has been downloaded.
-	// +optional
-	Units []string `json:"units,omitempty"`
 }
 
 // CloudConfig contains the generated output for the given operating system
@@ -208,20 +219,114 @@ const (
 	// new VM.
 	OperatingSystemConfigPurposeProvision OperatingSystemConfigPurpose = "provision"
 	// OperatingSystemConfigPurposeReconcile describes that the operating system configuration is executed on an already
-	// provisioned VM by the cloud-config-downloader script.
+	// provisioned VM by the gardener-node-agent.
 	OperatingSystemConfigPurposeReconcile OperatingSystemConfigPurpose = "reconcile"
 
-	// OperatingSystemConfigDefaultFilePermission is the default value for a permission of a file.
-	OperatingSystemConfigDefaultFilePermission int32 = 0644
 	// OperatingSystemConfigSecretDataKey is a constant for the key in a secret's `.data` field containing the
 	// results of a computed cloud config.
-	OperatingSystemConfigSecretDataKey = "cloud_config"
+	OperatingSystemConfigSecretDataKey = "cloud_config" // #nosec G101 -- No credential.
+)
+
+// CgroupDriverName is a string denoting the CRI cgroup driver.
+type CgroupDriverName string
+
+const (
+	// CgroupDriverCgroupfs is the name of the 'cgroupfs' cgroup driver.
+	CgroupDriverCgroupfs CgroupDriverName = "cgroupfs"
+	// CgroupDriverSystemd is the name of the 'systemd' cgroup driver.
+	CgroupDriverSystemd CgroupDriverName = "systemd"
 )
 
 // CRIConfig contains configurations of the CRI library.
 type CRIConfig struct {
-	// Name is a mandatory string containing the name of the CRI library. Supported values are `docker` and `containerd`.
+	// Name is a mandatory string containing the name of the CRI library. Supported values are `containerd`.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	// +kubebuilder:validation:Enum="containerd"
 	Name CRIName `json:"name"`
+	// CgroupDriver configures the CRI's cgroup driver. Supported values are `cgroupfs` or `systemd`.
+	// +optional
+	CgroupDriver *CgroupDriverName `json:"cgroupDriver,omitempty"`
+	// ContainerdConfig is the containerd configuration.
+	// Only to be set for OperatingSystemConfigs with purpose 'reconcile'.
+	// +optional
+	Containerd *ContainerdConfig `json:"containerd,omitempty"`
+}
+
+// ContainerdConfig contains configuration options for containerd.
+type ContainerdConfig struct {
+	// Registries configures the registry hosts for containerd.
+	// +optional
+	Registries []RegistryConfig `json:"registries,omitempty"`
+	// SandboxImage configures the sandbox image for containerd.
+	SandboxImage string `json:"sandboxImage"`
+	// Plugins configures the plugins section in containerd's config.toml.
+	// +optional
+	Plugins []PluginConfig `json:"plugins,omitempty"`
+}
+
+// PluginPathOperation is a type alias for operations at containerd's plugin configuration.
+type PluginPathOperation string
+
+const (
+	// AddPluginPathOperation is the name of the 'add' operation.
+	AddPluginPathOperation PluginPathOperation = "add"
+	// RemovePluginPathOperation is the name of the 'remove' operation.
+	RemovePluginPathOperation PluginPathOperation = "remove"
+)
+
+// PluginConfig contains configuration values for the containerd plugins section.
+type PluginConfig struct {
+	// Op is the operation for the given path. Possible values are 'add' and 'remove', defaults to 'add'.
+	// +optional
+	Op *PluginPathOperation `json:"op,omitempty"`
+	// Path is a list of elements that construct the path in the plugins section.
+	Path []string `json:"path"`
+	// Values are the values configured at the given path. If defined, it is expected as json format:
+	// - A given json object will be put to the given path.
+	// - If not configured, only the table entry to be created.
+	// +optional
+	Values *apiextensionsv1.JSON `json:"values,omitempty"`
+}
+
+// RegistryConfig contains registry configuration options.
+type RegistryConfig struct {
+	// Upstream is the upstream name of the registry.
+	Upstream string `json:"upstream"`
+	// Server is the URL to registry server of this upstream.
+	// It corresponds to the server field in the `hosts.toml` file, see https://github.com/containerd/containerd/blob/c51463010e0682f76dfdc10edc095e6596e2764b/docs/hosts.md#server-field for more information.
+	// +optional
+	Server *string `json:"server,omitempty"`
+	// Hosts are the registry hosts.
+	// It corresponds to the host fields in the `hosts.toml` file, see https://github.com/containerd/containerd/blob/c51463010e0682f76dfdc10edc095e6596e2764b/docs/hosts.md#host-fields-in-the-toml-table-format for more information.
+	Hosts []RegistryHost `json:"hosts,omitempty"`
+	// ReadinessProbe determines if host registry endpoints should be probed before they are added to the containerd config.
+	// +optional
+	ReadinessProbe *bool `json:"readinessProbe,omitempty"`
+}
+
+// RegistryCapability specifies an action a client can perform against a registry.
+type RegistryCapability string
+
+const (
+	// PullCapability defines the 'pull' capability.
+	PullCapability RegistryCapability = "pull"
+	// ResolveCapability defines the 'resolve' capability.
+	ResolveCapability RegistryCapability = "resolve"
+	// PushCapability defines the 'push' capability.
+	PushCapability RegistryCapability = "push"
+)
+
+// RegistryHost contains configuration values for a registry host.
+type RegistryHost struct {
+	// URL is the endpoint address of the registry mirror.
+	URL string `json:"url"`
+	// Capabilities determine what operations a host is
+	// capable of performing. Defaults to
+	//  - pull
+	//  - resolve
+	Capabilities []RegistryCapability `json:"capabilities,omitempty"`
+	// CACerts are paths to public key certificates used for TLS.
+	CACerts []string `json:"caCerts,omitempty"`
 }
 
 // CRIName is a type alias for the CRI name string.
@@ -230,8 +335,6 @@ type CRIName string
 const (
 	// CRINameContainerD is a constant for ContainerD CRI name
 	CRINameContainerD CRIName = "containerd"
-	// CRINameDocker is a constant for Docker CRI name
-	CRINameDocker CRIName = "docker"
 )
 
 // ContainerDRuntimeContainersBinFolder is the folder where Container Runtime binaries should be saved for ContainerD usage
@@ -241,10 +344,8 @@ const ContainerDRuntimeContainersBinFolder = "/var/bin/containerruntimes"
 type FileCodecID string
 
 const (
+	// PlainFileCodecID is the plain file codec id.
+	PlainFileCodecID FileCodecID = ""
 	// B64FileCodecID is the base64 file codec id.
 	B64FileCodecID FileCodecID = "b64"
-	// GZIPFileCodecID is the gzip file codec id.
-	GZIPFileCodecID FileCodecID = "gzip"
-	// GZIPB64FileCodecID is the gzip combined with base64 codec id.
-	GZIPB64FileCodecID FileCodecID = "gzip+b64"
 )

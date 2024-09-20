@@ -7,7 +7,7 @@ package app
 import (
 	"os"
 
-	"github.com/23technologies/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 	controllercmd "github.com/gardener/gardener/extensions/pkg/controller/cmd"
 )
 

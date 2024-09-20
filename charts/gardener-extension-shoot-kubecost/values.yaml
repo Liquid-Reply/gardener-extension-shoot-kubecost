@@ -4,7 +4,7 @@
 
 ---
 image:
-  repository: ghcr.io/23technologies/gardener-extension-shoot-kubecost
+  repository: ghcr.io/liquid-reply/gardener-extension-shoot-kubecost
   tag: latest
   pullPolicy: IfNotPresent
 

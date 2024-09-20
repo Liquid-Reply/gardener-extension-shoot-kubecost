@@ -1,35 +1,22 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package kubernetes
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gardener/gardener/pkg/client/kubernetes"
-	"github.com/gardener/gardener/pkg/utils/retry"
-
-	"github.com/sirupsen/logrus"
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
-	certificatesv1 "k8s.io/api/certificates/v1"
-	certificatesv1beta1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -39,9 +26,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/duration"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"github.com/gardener/gardener/pkg/client/kubernetes"
+	"github.com/gardener/gardener/pkg/utils/retry"
 )
 
 // TruncateLabelValue truncates a string at 63 characters so it's suitable for a label value.
@@ -90,48 +83,16 @@ func SetAnnotationAndUpdate(ctx context.Context, c client.Client, obj client.Obj
 	return nil
 }
 
-func nameAndNamespace(namespaceOrName string, nameOpt ...string) (namespace, name string) {
-	if len(nameOpt) > 1 {
-		panic(fmt.Sprintf("more than name/namespace for key specified: %s/%v", namespaceOrName, nameOpt))
+// ObjectKeyFromSecretRef returns an ObjectKey for the given SecretReference.
+func ObjectKeyFromSecretRef(ref corev1.SecretReference) client.ObjectKey {
+	return client.ObjectKey{
+		Namespace: ref.Namespace,
+		Name:      ref.Name,
 	}
-	if len(nameOpt) == 0 {
-		name = namespaceOrName
-		return
-	}
-	namespace = namespaceOrName
-	name = nameOpt[0]
-	return
 }
 
-// Key creates a new client.ObjectKey from the given parameters.
-// There are only two ways to call this function:
-// - If only namespaceOrName is set, then a client.ObjectKey with name set to namespaceOrName is returned.
-// - If namespaceOrName and one nameOpt is given, then a client.ObjectKey with namespace set to namespaceOrName
-//   and name set to nameOpt[0] is returned.
-// For all other cases, this method panics.
-func Key(namespaceOrName string, nameOpt ...string) client.ObjectKey {
-	namespace, name := nameAndNamespace(namespaceOrName, nameOpt...)
-	return client.ObjectKey{Namespace: namespace, Name: name}
-}
-
-// ObjectMeta creates a new metav1.ObjectMeta from the given parameters.
-// There are only two ways to call this function:
-// - If only namespaceOrName is set, then a metav1.ObjectMeta with name set to namespaceOrName is returned.
-// - If namespaceOrName and one nameOpt is given, then a metav1.ObjectMeta with namespace set to namespaceOrName
-//   and name set to nameOpt[0] is returned.
-// For all other cases, this method panics.
-func ObjectMeta(namespaceOrName string, nameOpt ...string) metav1.ObjectMeta {
-	namespace, name := nameAndNamespace(namespaceOrName, nameOpt...)
-	return metav1.ObjectMeta{Namespace: namespace, Name: name}
-}
-
-// ObjectMetaFromKey returns an ObjectMeta with the namespace and name set to the values from the key.
-func ObjectMetaFromKey(key client.ObjectKey) metav1.ObjectMeta {
-	return ObjectMeta(key.Namespace, key.Name)
-}
-
-// WaitUntilResourceDeleted deletes the given resource and then waits until it has been deleted. It respects the
-// given interval and timeout.
+// WaitUntilResourceDeleted waits until it has been deleted. It respects the given interval. Timeout must be provided
+// via the context.
 func WaitUntilResourceDeleted(ctx context.Context, c client.Client, obj client.Object, interval time.Duration) error {
 	key := client.ObjectKeyFromObject(obj)
 	return retry.Until(ctx, interval, func(ctx context.Context) (done bool, err error) {
@@ -182,27 +143,37 @@ func WaitUntilResourceDeletedWithDefaults(ctx context.Context, c client.Client, 
 
 // WaitUntilLoadBalancerIsReady waits until the given external load balancer has
 // been created (i.e., its ingress information has been updated in the service status).
-func WaitUntilLoadBalancerIsReady(ctx context.Context, c client.Client, namespace, name string, timeout time.Duration, logger logrus.FieldLogger) (string, error) {
+func WaitUntilLoadBalancerIsReady(
+	ctx context.Context,
+	log logr.Logger,
+	c client.Client,
+	namespace, name string,
+	timeout time.Duration,
+) (
+	string,
+	error,
+) {
 	var (
 		loadBalancerIngress string
 		service             = &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
 	)
 
+	log = log.WithValues("service", client.ObjectKeyFromObject(service))
+
 	if err := retry.UntilTimeout(ctx, 5*time.Second, timeout, func(ctx context.Context) (done bool, err error) {
 		loadBalancerIngress, err = GetLoadBalancerIngress(ctx, c, service)
 		if err != nil {
-			logger.Infof("Waiting until the %s service is ready...", name)
-			// TODO(AC): This is a quite optimistic check / we should differentiate here
+			log.Info("Waiting until service is ready")
 			return retry.MinorError(fmt.Errorf("%s service is not ready: %v", name, err))
 		}
 		return retry.Ok()
 	}); err != nil {
-		logger.Errorf("error %v occurred while waiting for load balancer to be ready", err)
+		log.Error(err, "Error while waiting for load balancer to be ready")
 
 		// use API reader here, we don't want to cache all events
 		eventsErrorMessage, err2 := FetchEventMessages(ctx, c.Scheme(), c, service, corev1.EventTypeWarning, 2)
 		if err2 != nil {
-			logger.Errorf("error %v occurred while fetching events for load balancer service", err2)
+			log.Error(err2, "Error while fetching events for load balancer service")
 			return "", fmt.Errorf("'%w' occurred but could not fetch events for more information", err)
 		}
 		if eventsErrorMessage != "" {
@@ -274,7 +245,8 @@ func MapStringBoolToCommandLineParameter(m map[string]bool, param string) string
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+
+	slices.Sort(keys)
 
 	out := param
 	for _, key := range keys {
@@ -615,24 +587,6 @@ func MostRecentCompleteLogs(
 	return fmt.Sprintf("%s\n...\n%s", firstLogLines, lastLogLines), nil
 }
 
-// IgnoreAlreadyExists returns nil on AlreadyExists errors.
-// All other values that are not AlreadyExists errors or nil are returned unmodified.
-func IgnoreAlreadyExists(err error) error {
-	if apierrors.IsAlreadyExists(err) {
-		return nil
-	}
-	return err
-}
-
-// CertificatesV1beta1UsagesToCertificatesV1Usages converts []certificatesv1beta1.KeyUsage to []certificatesv1.KeyUsage.
-func CertificatesV1beta1UsagesToCertificatesV1Usages(usages []certificatesv1beta1.KeyUsage) []certificatesv1.KeyUsage {
-	var out []certificatesv1.KeyUsage
-	for _, u := range usages {
-		out = append(out, certificatesv1.KeyUsage(u))
-	}
-	return out
-}
-
 // NewKubeconfig returns a new kubeconfig structure.
 func NewKubeconfig(contextName string, cluster clientcmdv1.Cluster, authInfo clientcmdv1.AuthInfo) *clientcmdv1.Config {
 	if !strings.HasPrefix(cluster.Server, "https://") {
@@ -660,10 +614,13 @@ func NewKubeconfig(contextName string, cluster clientcmdv1.Cluster, authInfo cli
 }
 
 // ObjectKeyForCreateWebhooks creates an object key for an object handled by webhooks registered for CREATE verbs.
-func ObjectKeyForCreateWebhooks(obj client.Object) client.ObjectKey {
+func ObjectKeyForCreateWebhooks(obj client.Object, req admission.Request) client.ObjectKey {
 	namespace := obj.GetNamespace()
-	if len(namespace) == 0 {
-		namespace = metav1.NamespaceDefault
+
+	// In webhooks the namespace is not always set in objects due to https://github.com/kubernetes/kubernetes/issues/88282,
+	// so try to get the namespace information from the request directly, otherwise the object is presumably not namespaced.
+	if len(namespace) == 0 && len(req.Namespace) != 0 {
+		namespace = req.Namespace
 	}
 
 	name := obj.GetName()
@@ -672,4 +629,69 @@ func ObjectKeyForCreateWebhooks(obj client.Object) client.ObjectKey {
 	}
 
 	return client.ObjectKey{Namespace: namespace, Name: name}
+}
+
+// ClientCertificateFromRESTConfig returns the client certificate used inside a REST config.
+func ClientCertificateFromRESTConfig(restConfig *rest.Config) (*tls.Certificate, error) {
+	cert, err := tls.X509KeyPair(restConfig.CertData, restConfig.KeyData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse X509 certificate: %w", err)
+	}
+
+	if len(cert.Certificate) < 1 {
+		return nil, errors.New("the X509 certificate is invalid, no cert/key data found")
+	}
+
+	certs, err := x509.ParseCertificates(cert.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("the X509 certificate bundle cannot be parsed: %w", err)
+	}
+
+	if len(certs) < 1 {
+		return nil, errors.New("the X509 certificate bundle does not contain exactly one certificate")
+	}
+
+	cert.Leaf = certs[0]
+	return &cert, nil
+}
+
+// TolerationForTaint returns the corresponding toleration for the given taint.
+func TolerationForTaint(taint corev1.Taint) corev1.Toleration {
+	operator := corev1.TolerationOpEqual
+	if taint.Value == "" {
+		operator = corev1.TolerationOpExists
+	}
+
+	return corev1.Toleration{
+		Key:      taint.Key,
+		Operator: operator,
+		Value:    taint.Value,
+		Effect:   taint.Effect,
+	}
+}
+
+// ComparableTolerations contains information to transform an ordinary 'corev1.Toleration' object to a semantically
+// comparable object that is fully compatible with the 'comparable' Golang interface, see https://github.com/golang/go/blob/de6abd78893e91f26337eb399644b7a6bc3ea583/src/builtin/builtin.go#L102.
+type ComparableTolerations struct {
+	tolerationSeconds map[int64]*int64
+}
+
+// Transform takes a toleration object and exchanges the 'TolerationSeconds' pointer if set. The int64 value will
+// be the same but pointers will be **reused** for all passed tolerations that have the same underlying toleration seconds value.
+func (c *ComparableTolerations) Transform(toleration corev1.Toleration) corev1.Toleration {
+	if toleration.TolerationSeconds == nil {
+		return toleration
+	}
+
+	if c.tolerationSeconds == nil {
+		c.tolerationSeconds = make(map[int64]*int64)
+	}
+
+	tolerationSeconds := *toleration.TolerationSeconds
+	if _, ok := c.tolerationSeconds[tolerationSeconds]; !ok {
+		c.tolerationSeconds[tolerationSeconds] = ptr.To(tolerationSeconds)
+	}
+
+	toleration.TolerationSeconds = c.tolerationSeconds[tolerationSeconds]
+	return toleration
 }

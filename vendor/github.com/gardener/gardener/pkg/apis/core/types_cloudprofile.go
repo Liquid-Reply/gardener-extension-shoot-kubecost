@@ -1,16 +1,6 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package core
 
@@ -69,7 +59,11 @@ type CloudProfileSpec struct {
 	Type string
 	// VolumeTypes contains constraints regarding allowed values for volume types in the 'workers' block in the Shoot specification.
 	VolumeTypes []VolumeType
+	// Bastion contains machine and image properties
+	Bastion *Bastion
 }
+
+var _ Object = (*CloudProfile)(nil)
 
 // GetProviderType gets the type of the provider.
 func (c *CloudProfile) GetProviderType() string {
@@ -98,6 +92,11 @@ type MachineImage struct {
 	Name string
 	// Versions contains versions, expiration dates and container runtimes of the machine image
 	Versions []MachineImageVersion
+	// UpdateStrategy is the update strategy to use for the machine image. Possible values are:
+	//  - patch: update to the latest patch version of the current minor version.
+	//  - minor: update to the latest minor and patch version.
+	//  - major: always update to the overall latest version (default).
+	UpdateStrategy *MachineImageUpdateStrategy
 }
 
 // MachineImageVersion is an expirable version with list of supported container runtimes and interfaces
@@ -105,6 +104,14 @@ type MachineImageVersion struct {
 	ExpirableVersion
 	// CRI list of supported container runtime and interfaces supported by this version
 	CRI []CRI
+	// Architectures is the list of CPU architectures of the machine image in this version.
+	Architectures []string
+	// KubeletVersionConstraint is a constraint describing the supported kubelet versions by the machine image in this version.
+	// If the field is not specified, it is assumed that the machine image in this version supports all kubelet versions.
+	// Examples:
+	// - '>= 1.26' - supports only kubelet versions greater than or equal to 1.26
+	// - '< 1.26' - supports only kubelet versions less than 1.26
+	KubeletVersionConstraint *string
 }
 
 // ExpirableVersion contains a version and an expiration date.
@@ -131,6 +138,8 @@ type MachineType struct {
 	Storage *MachineTypeStorage
 	// Usable defines if the machine type can be used for shoot clusters.
 	Usable *bool
+	// Architecture is the CPU architecture of this machine type.
+	Architecture *string
 }
 
 // MachineTypeStorage is the amount of storage associated with the root volume of this machine type.
@@ -160,7 +169,7 @@ type Region struct {
 
 // AvailabilityZone is an availability zone.
 type AvailabilityZone struct {
-	// Name is an an availability zone name.
+	// Name is an availability zone name.
 	Name string
 	// UnavailableMachineTypes is a list of machine type names that are not availability in this zone.
 	UnavailableMachineTypes []string
@@ -178,6 +187,28 @@ type VolumeType struct {
 	Usable *bool
 	// MinSize is the minimal supported storage size.
 	MinSize *resource.Quantity
+}
+
+// Bastion contains the bastions creation info
+type Bastion struct {
+	// MachineImage contains the bastions machine image properties
+	MachineImage *BastionMachineImage
+	// MachineType contains the bastions machine type properties
+	MachineType *BastionMachineType
+}
+
+// BastionMachineImage contains the bastions machine image properties
+type BastionMachineImage struct {
+	// Name of the machine image
+	Name string
+	// Version of the machine image
+	Version *string
+}
+
+// BastionMachineType contains the bastions machine type properties
+type BastionMachineType struct {
+	// Name of the machine type
+	Name string
 }
 
 const (
@@ -201,4 +232,18 @@ const (
 	// ClassificationDeprecated indicates that a patch version should not be used anymore, should be updated to a new version
 	// and will eventually expire.
 	ClassificationDeprecated VersionClassification = "deprecated"
+)
+
+// MachineImageUpdateStrategy is the update strategy to use for a machine image
+type MachineImageUpdateStrategy string
+
+const (
+	// UpdateStrategyPatch indicates that auto-updates are performed to the latest patch version of the current minor version.
+	// When using an expired version during the maintenance window, force updates to the latest patch of the next (not necessarily consecutive) minor when using an expired version.
+	UpdateStrategyPatch MachineImageUpdateStrategy = "patch"
+	// UpdateStrategyMinor indicates that auto-updates are performed to the latest patch and minor version of the current major version.
+	// When using an expired version during the maintenance window, force updates to the latest minor and patch of the next (not necessarily consecutive) major version.
+	UpdateStrategyMinor MachineImageUpdateStrategy = "minor"
+	// UpdateStrategyMajor indicates that auto-updates are performed always to the overall latest version.
+	UpdateStrategyMajor MachineImageUpdateStrategy = "major"
 )

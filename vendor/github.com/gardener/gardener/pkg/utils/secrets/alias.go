@@ -1,16 +1,6 @@
-// Copyright (c) 2022 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package secrets
 
@@ -18,6 +8,8 @@ import (
 	"crypto/rsa"
 	"io"
 	"strings"
+
+	"k8s.io/utils/clock"
 
 	"github.com/gardener/gardener/pkg/utils"
 )
@@ -62,4 +54,14 @@ fgsCgYEAzBjM5L4kKcyF5mC1v6NyEaQB8Cve3gfFatLfFrjNwHbvdY5PEa/x0NqS
 i/WyG5dokMowEJSvpCBwHbAYMLlNK7oMUpXlqcRoYo24U6Mwj68=
 -----END RSA PRIVATE KEY-----`))
 	}
+
+	// GenerateVPNKey is an alias for generateVPNKey. Exposed for testing.
+	GenerateVPNKey = generateVPNKey
+	// FakeGenerateVPNKey is a fake for GenerateVPNKey.
+	FakeGenerateVPNKey = func() ([]byte, error) {
+		return []byte("key"), nil
+	}
+
+	// Clock is an alias for clock.RealClock. Exposed for testing.
+	Clock clock.Clock = clock.RealClock{}
 )

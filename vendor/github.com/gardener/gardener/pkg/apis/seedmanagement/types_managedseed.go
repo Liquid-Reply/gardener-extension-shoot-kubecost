@@ -1,16 +1,6 @@
-// Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package seedmanagement
 
@@ -60,13 +50,9 @@ type ManagedSeedSpec struct {
 	// Shoot references a Shoot that should be registered as Seed.
 	// This field is immutable.
 	Shoot *Shoot
-	// SeedTemplate is a template for a Seed object, that should be used to register a given cluster as a Seed.
-	// Either SeedTemplate or Gardenlet must be specified. When Seed is specified, the ManagedSeed controller will not deploy a gardenlet into the cluster
-	// and an existing gardenlet reconciling the new Seed is required.
-	SeedTemplate *gardencore.SeedTemplate
 	// Gardenlet specifies that the ManagedSeed controller should deploy a gardenlet into the cluster
 	// with the given deployment parameters and GardenletConfiguration.
-	Gardenlet *Gardenlet
+	Gardenlet *GardenletConfig
 }
 
 // Shoot identifies the Shoot that should be registered as Seed.
@@ -75,8 +61,8 @@ type Shoot struct {
 	Name string
 }
 
-// Gardenlet specifies gardenlet deployment parameters and the GardenletConfiguration used to configure gardenlet.
-type Gardenlet struct {
+// GardenletConfig specifies gardenlet deployment parameters and the GardenletConfiguration used to configure gardenlet.
+type GardenletConfig struct {
 	// Deployment specifies certain gardenlet deployment parameters, such as the number of replicas,
 	// the image, etc.
 	Deployment *GardenletDeployment
@@ -95,9 +81,9 @@ type Gardenlet struct {
 // GardenletDeployment specifies certain gardenlet deployment parameters, such as the number of replicas,
 // the image, etc.
 type GardenletDeployment struct {
-	// ReplicaCount is the number of gardenlet replicas. Defaults to 1.
+	// ReplicaCount is the number of gardenlet replicas. Defaults to 2.
 	ReplicaCount *int32
-	// RevisionHistoryLimit is the number of old gardenlet ReplicaSets to retain to allow rollback. Defaults to 10.
+	// RevisionHistoryLimit is the number of old gardenlet ReplicaSets to retain to allow rollback. Defaults to 2.
 	RevisionHistoryLimit *int32
 	// ServiceAccountName is the name of the ServiceAccount to use to run gardenlet pods.
 	ServiceAccountName *string
@@ -116,6 +102,9 @@ type GardenletDeployment struct {
 	// Env is the list of environment variables to set in the gardenlet container.
 	Env []corev1.EnvVar
 	// VPA specifies whether to enable VPA for gardenlet. Defaults to true.
+	//
+	// Deprecated: This field is deprecated and has no effect anymore. It will be removed in the future.
+	// TODO(rfranzke): Remove this field after v1.110 has been released.
 	VPA *bool
 }
 

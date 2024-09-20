@@ -5,6 +5,7 @@
 package lifecycle
 
 import (
+	"context"
 	"time"
 
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
@@ -12,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-// DefaultAddOptions contains configuration for the shoot-kubecost controller 
+// DefaultAddOptions contains configuration for the shoot-kubecost controller
 var DefaultAddOptions = AddOptions{}
 
 // AddOptions are options to apply when adding the shoot-kubecost controller to the manager.
@@ -24,14 +25,14 @@ type AddOptions struct {
 }
 
 // AddToManager adds a shoot-kubecost Lifecycle controller to the given Controller Manager.
-func AddToManager(mgr manager.Manager) error {
-	return extension.Add(mgr, extension.AddArgs{
+func AddToManager(ctx context.Context, mgr manager.Manager) error {
+	return extension.Add(ctx, mgr, extension.AddArgs{
 		Actuator:          NewActuator(),
 		ControllerOptions: DefaultAddOptions.ControllerOptions,
 		Name:              "shoot-kubecost_lifecycle_controller",
 		FinalizerSuffix:   "shoot-kubecost",
 		Resync:            60 * time.Minute,
-		Predicates:        extension.DefaultPredicates(DefaultAddOptions.IgnoreOperationAnnotation),
+		Predicates:        extension.DefaultPredicates(ctx, mgr, DefaultAddOptions.IgnoreOperationAnnotation),
 		Type:              "shoot-kubecost",
 	})
 }

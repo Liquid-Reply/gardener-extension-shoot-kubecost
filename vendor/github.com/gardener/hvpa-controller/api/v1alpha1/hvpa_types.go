@@ -1,25 +1,14 @@
-/*
-Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved.
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
+//
+// SPDX-License-Identifier: Apache-2.0
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 
 package v1alpha1
 
 import (
 	autoscaling "k8s.io/api/autoscaling/v2beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	vpa_api "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
+	vpa_api "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -91,7 +80,7 @@ type WeightBasedScalingInterval struct {
 	// VpaWeight defines the weight (in percentage) to be given to VPA's recommendationd for the interval of number of replicas provided
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100
-	VpaWeight VpaWeight `json:"vpaWeight,omitempty"`
+	VpaWeight int32 `json:"vpaWeight,omitempty"`
 	// StartReplicaCount is the number of replicas from which VpaWeight is applied to VPA scaling
 	// If this field is not provided, it will default to minReplicas of HPA
 	// +optional
@@ -158,6 +147,7 @@ type ScaleParams struct {
 // VpaTemplate defines the template for VPA
 type VpaTemplate struct {
 	// Metadata of the pods created from this template.
+	// +kubebuilder:validation:XPreserveUnknownFields
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
@@ -169,6 +159,7 @@ type VpaTemplate struct {
 // HpaTemplate defines the template for HPA
 type HpaTemplate struct {
 	// Metadata of the pods created from this template.
+	// +kubebuilder:validation:XPreserveUnknownFields
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
@@ -233,14 +224,11 @@ type ChangeParams struct {
 	Percentage *int32 `json:"percentage,omitempty"`
 }
 
-// VpaWeight - weight to provide to VPA scaling
-type VpaWeight int32
-
 const (
 	// VpaOnly - only vertical scaling
-	VpaOnly VpaWeight = 100
+	VpaOnly int32 = 100
 	// HpaOnly - only horizontal scaling
-	HpaOnly VpaWeight = 0
+	HpaOnly int32 = 0
 )
 
 // LastError has detailed information of the error
@@ -270,8 +258,8 @@ type HvpaStatus struct {
 	// Current VPA UpdatePolicy set in the spec
 	VpaScaleDownUpdatePolicy *UpdatePolicy `json:"vpaScaleDownUpdatePolicy,omitempty"`
 
-	HpaWeight VpaWeight `json:"hpaWeight,omitempty"`
-	VpaWeight VpaWeight `json:"vpaWeight,omitempty"`
+	HpaWeight int32 `json:"hpaWeight,omitempty"`
+	VpaWeight int32 `json:"vpaWeight,omitempty"`
 
 	// Override scale up stabilization window
 	OverrideScaleUpStabilization bool `json:"overrideScaleUpStabilization,omitempty"`

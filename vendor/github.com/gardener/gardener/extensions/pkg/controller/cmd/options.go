@@ -1,40 +1,34 @@
-// Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
+	"github.com/go-logr/logr"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/utils/ptr"
+	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
+	"github.com/gardener/gardener/pkg/logger"
 )
 
 const (
 	// LeaderElectionFlag is the name of the command line flag to specify whether to do leader election or not.
 	LeaderElectionFlag = "leader-election"
-	// LeaderElectionResourceLockFlag is the name of the command line flag to specify the resource type used for leader
-	// election.
-	LeaderElectionResourceLockFlag = "leader-election-resource-lock"
 	// LeaderElectionIDFlag is the name of the command line flag to specify the leader election ID.
 	LeaderElectionIDFlag = "leader-election-id"
 	// LeaderElectionNamespaceFlag is the name of the command line flag to specify the leader election namespace.
@@ -45,6 +39,10 @@ const (
 	WebhookServerPortFlag = "webhook-config-server-port"
 	// WebhookCertDirFlag is the name of the command line flag to specify the webhook certificate directory.
 	WebhookCertDirFlag = "webhook-config-cert-dir"
+	// MetricsBindAddressFlag is the name of the command line flag to specify the TCP address that the controller
+	// should bind to for serving prometheus metrics.
+	// It can be set to "0" to disable the metrics serving.
+	MetricsBindAddressFlag = "metrics-bind-address"
 	// HealthBindAddressFlag is the name of the command line flag to specify the TCP address that the controller
 	// should bind to for serving health probes
 	HealthBindAddressFlag = "health-bind-address"
@@ -65,11 +63,17 @@ const (
 
 	// GardenerVersionFlag is the name of the command line flag containing the Gardener version.
 	GardenerVersionFlag = "gardener-version"
+
+	// LogLevelFlag is the name of the command line flag containing the log level.
+	LogLevelFlag = "log-level"
+
+	// LogFormatFlag is the name of the command line flag containing the log format.
+	LogFormatFlag = "log-format"
 )
 
 // LeaderElectionNameID returns a leader election ID for the given name.
 func LeaderElectionNameID(name string) string {
-	return fmt.Sprintf("%s-leader-election", name)
+	return name + "-leader-election"
 }
 
 // Flagger adds flags to a given FlagSet.
@@ -156,20 +160,6 @@ func (b *OptionAggregator) Complete() error {
 type ManagerOptions struct {
 	// LeaderElection is whether leader election is turned on or not.
 	LeaderElection bool
-	// LeaderElectionResourceLock is the resource type used for leader election (defaults to `leases`).
-	//
-	// When changing the default resource lock, please make sure to migrate via multilocks to
-	// avoid situations where multiple running instances of your controller have each acquired leadership
-	// through different resource locks (e.g. during upgrades) and thus act on the same resources concurrently.
-	// For example, if you want to migrate to the "leases" resource lock, you might do so by migrating
-	// to the respective multilock first ("configmapsleases" or "endpointsleases"), which will acquire
-	// a leader lock on both resources. After one release with the multilock as a default, you can
-	// go ahead and migrate to "leases". Please also keep in mind, that users might skip versions
-	// of your controller, so at least add a flashy release note when changing the default lock.
-	//
-	// Note: before controller-runtime version v0.7, the resource lock was set to "configmaps".
-	// Please keep this in mind, when planning a proper migration path for your controller.
-	LeaderElectionResourceLock string
 	// LeaderElectionID is the id to do leader election with.
 	LeaderElectionID string
 	// LeaderElectionNamespace is the namespace to do leader election in.
@@ -180,34 +170,57 @@ type ManagerOptions struct {
 	WebhookServerPort int
 	// WebhookCertDir is the directory that contains the webhook server key and certificate.
 	WebhookCertDir string
-	// HealthBindAddress is the TCP address that the controller should bind to for serving health probes
+	// MetricsBindAddress is the TCP address that the controller should bind to for serving prometheus metrics.
+	MetricsBindAddress string
+	// HealthBindAddress is the TCP address that the controller should bind to for serving health probes.
 	HealthBindAddress string
+	// LogLevel defines the level/severity for the logs. Must be one of [info,debug,error]
+	LogLevel string
+	// LogFormat defines the format for the logs. Must be one of [json,text]
+	LogFormat string
 
 	config *ManagerConfig
 }
 
 // AddFlags implements Flagger.AddFlags.
 func (m *ManagerOptions) AddFlags(fs *pflag.FlagSet) {
-	defaultLeaderElectionResourceLock := m.LeaderElectionResourceLock
-	if defaultLeaderElectionResourceLock == "" {
-		// explicitly default to leases if no default is specified
-		defaultLeaderElectionResourceLock = resourcelock.LeasesResourceLock
-	}
-
 	fs.BoolVar(&m.LeaderElection, LeaderElectionFlag, m.LeaderElection, "Whether to use leader election or not when running this controller manager.")
-	fs.StringVar(&m.LeaderElectionResourceLock, LeaderElectionResourceLockFlag, defaultLeaderElectionResourceLock, "Which resource type to use for leader election. "+
-		"Supported options are 'endpoints', 'configmaps', 'leases', 'endpointsleases' and 'configmapsleases'.")
 	fs.StringVar(&m.LeaderElectionID, LeaderElectionIDFlag, m.LeaderElectionID, "The leader election id to use.")
 	fs.StringVar(&m.LeaderElectionNamespace, LeaderElectionNamespaceFlag, m.LeaderElectionNamespace, "The namespace to do leader election in.")
 	fs.StringVar(&m.WebhookServerHost, WebhookServerHostFlag, m.WebhookServerHost, "The webhook server host.")
 	fs.IntVar(&m.WebhookServerPort, WebhookServerPortFlag, m.WebhookServerPort, "The webhook server port.")
 	fs.StringVar(&m.WebhookCertDir, WebhookCertDirFlag, m.WebhookCertDir, "The directory that contains the webhook server key and certificate.")
+	fs.StringVar(&m.MetricsBindAddress, MetricsBindAddressFlag, ":8080", "bind address for the metrics server")
 	fs.StringVar(&m.HealthBindAddress, HealthBindAddressFlag, ":8081", "bind address for the health server")
+	fs.StringVar(&m.LogLevel, LogLevelFlag, logger.InfoLevel, "The level/severity for the logs. Must be one of [info,debug,error]")
+	fs.StringVar(&m.LogFormat, LogFormatFlag, logger.FormatJSON, "The format for the logs. Must be one of [json,text]")
 }
 
 // Complete implements Completer.Complete.
 func (m *ManagerOptions) Complete() error {
-	m.config = &ManagerConfig{m.LeaderElection, m.LeaderElectionResourceLock, m.LeaderElectionID, m.LeaderElectionNamespace, m.WebhookServerHost, m.WebhookServerPort, m.WebhookCertDir, m.HealthBindAddress}
+	if !sets.New(logger.AllLogLevels...).Has(m.LogLevel) {
+		return fmt.Errorf("invalid --%s: %s", LogLevelFlag, m.LogLevel)
+	}
+
+	if !sets.New(logger.AllLogFormats...).Has(m.LogFormat) {
+		return fmt.Errorf("invalid --%s: %s", LogFormatFlag, m.LogFormat)
+	}
+
+	logger, err := logger.NewZapLogger(m.LogLevel, m.LogFormat)
+	if err != nil {
+		return fmt.Errorf("error instantiating zap logger: %w", err)
+	}
+
+	m.config = &ManagerConfig{
+		m.LeaderElection,
+		m.LeaderElectionID,
+		m.LeaderElectionNamespace,
+		m.WebhookServerHost,
+		m.WebhookServerPort,
+		m.WebhookCertDir,
+		m.MetricsBindAddress,
+		m.HealthBindAddress,
+		logger}
 	return nil
 }
 
@@ -220,8 +233,6 @@ func (m *ManagerOptions) Completed() *ManagerConfig {
 type ManagerConfig struct {
 	// LeaderElection is whether leader election is turned on or not.
 	LeaderElection bool
-	// LeaderElectionResourceLock is the resource type used for leader election.
-	LeaderElectionResourceLock string
 	// LeaderElectionID is the id to do leader election with.
 	LeaderElectionID string
 	// LeaderElectionNamespace is the namespace to do leader election in.
@@ -232,20 +243,29 @@ type ManagerConfig struct {
 	WebhookServerPort int
 	// WebhookCertDir is the directory that contains the webhook server key and certificate.
 	WebhookCertDir string
-	// HealthBindAddress is the TCP address that the controller should bind to for serving health probes
+	// MetricsBindAddress is the TCP address that the controller should bind to for serving prometheus metrics.
+	MetricsBindAddress string
+	// HealthBindAddress is the TCP address that the controller should bind to for serving health probes.
 	HealthBindAddress string
+	// Logger is a logr.Logger compliant logger
+	Logger logr.Logger
 }
 
 // Apply sets the values of this ManagerConfig in the given manager.Options.
 func (c *ManagerConfig) Apply(opts *manager.Options) {
 	opts.LeaderElection = c.LeaderElection
-	opts.LeaderElectionResourceLock = c.LeaderElectionResourceLock
+	opts.LeaderElectionResourceLock = resourcelock.LeasesResourceLock
 	opts.LeaderElectionID = c.LeaderElectionID
 	opts.LeaderElectionNamespace = c.LeaderElectionNamespace
-	opts.Host = c.WebhookServerHost
-	opts.Port = c.WebhookServerPort
-	opts.CertDir = c.WebhookCertDir
+	opts.Metrics = metricsserver.Options{BindAddress: c.MetricsBindAddress}
 	opts.HealthProbeBindAddress = c.HealthBindAddress
+	opts.Logger = c.Logger
+	opts.Controller = controllerconfig.Controller{RecoverPanic: ptr.To(true)}
+	opts.WebhookServer = webhook.NewServer(webhook.Options{
+		Host:    c.WebhookServerHost,
+		Port:    c.WebhookServerPort,
+		CertDir: c.WebhookCertDir,
+	})
 }
 
 // Options initializes empty manager.Options, applies the set values and returns it.
@@ -367,7 +387,7 @@ func (r *RESTOptions) AddFlags(fs *pflag.FlagSet) {
 type SwitchOptions struct {
 	Disabled []string
 
-	nameToAddToManager  map[string]func(manager.Manager) error
+	nameToAddToManager  map[string]func(context.Context, manager.Manager) error
 	addToManagerBuilder extensionscontroller.AddToManagerBuilder
 }
 
@@ -381,11 +401,11 @@ func (d *SwitchOptions) Register(pairs ...NameToAddToManagerFunc) {
 // NameToAddToManagerFunc binds a specific name to a controller's AddToManager function.
 type NameToAddToManagerFunc struct {
 	Name string
-	Func func(manager.Manager) error
+	Func func(context.Context, manager.Manager) error
 }
 
 // Switch binds the given name to the given AddToManager function.
-func Switch(name string, f func(manager.Manager) error) NameToAddToManagerFunc {
+func Switch(name string, f func(context.Context, manager.Manager) error) NameToAddToManagerFunc {
 	return NameToAddToManagerFunc{
 		Name: name,
 		Func: f,
@@ -394,7 +414,7 @@ func Switch(name string, f func(manager.Manager) error) NameToAddToManagerFunc {
 
 // NewSwitchOptions creates new SwitchOptions with the given initial pairs.
 func NewSwitchOptions(pairs ...NameToAddToManagerFunc) *SwitchOptions {
-	opts := SwitchOptions{nameToAddToManager: make(map[string]func(manager.Manager) error)}
+	opts := SwitchOptions{nameToAddToManager: make(map[string]func(context.Context, manager.Manager) error)}
 	opts.Register(pairs...)
 	return &opts
 }
@@ -410,7 +430,7 @@ func (d *SwitchOptions) AddFlags(fs *pflag.FlagSet) {
 
 // Complete implements Option.
 func (d *SwitchOptions) Complete() error {
-	disabled := sets.NewString()
+	disabled := sets.New[string]()
 	for _, disabledName := range d.Disabled {
 		if _, ok := d.nameToAddToManager[disabledName]; !ok {
 			return fmt.Errorf("cannot disable unknown controller %q", disabledName)
@@ -433,12 +453,12 @@ func (d *SwitchOptions) Completed() *SwitchConfig {
 
 // SwitchConfig is the completed configuration of SwitchOptions.
 type SwitchConfig struct {
-	AddToManager func(manager.Manager) error
+	AddToManager func(context.Context, manager.Manager) error
 }
 
 // GeneralOptions are command line options that can be set for general configuration.
 type GeneralOptions struct {
-	// GardenerVersion string
+	// GardenerVersion is the version of the Gardener.
 	GardenerVersion string
 
 	config *GeneralConfig
@@ -446,7 +466,7 @@ type GeneralOptions struct {
 
 // GeneralConfig is a completed general configuration.
 type GeneralConfig struct {
-	// GardenerVersion string
+	// GardenerVersion is the version of the Gardener.
 	GardenerVersion string
 }
 

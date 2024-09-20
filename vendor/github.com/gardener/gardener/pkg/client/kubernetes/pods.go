@@ -1,16 +1,6 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package kubernetes
 
@@ -22,8 +12,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gardener/gardener/pkg/utils"
-
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -31,6 +19,8 @@ import (
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
+
+	"github.com/gardener/gardener/pkg/utils"
 )
 
 // NewPodExecutor returns a podExecutor
@@ -42,7 +32,7 @@ func NewPodExecutor(config *rest.Config) PodExecutor {
 
 // PodExecutor is the pod executor interface
 type PodExecutor interface {
-	Execute(namespace, name, containerName, command, commandArg string) (io.Reader, error)
+	Execute(ctx context.Context, namespace, name, containerName, command, commandArg string) (io.Reader, error)
 }
 
 type podExecutor struct {
@@ -50,7 +40,7 @@ type podExecutor struct {
 }
 
 // Execute executes a command on a pod
-func (p *podExecutor) Execute(namespace, name, containerName, command, commandArg string) (io.Reader, error) {
+func (p *podExecutor) Execute(ctx context.Context, namespace, name, containerName, command, commandArg string) (io.Reader, error) {
 	client, err := corev1client.NewForConfig(p.config)
 	if err != nil {
 		return nil, err
@@ -75,7 +65,7 @@ func (p *podExecutor) Execute(namespace, name, containerName, command, commandAr
 		return nil, fmt.Errorf("failed to initialized the command exector: %w", err)
 	}
 
-	err = executor.Stream(remotecommand.StreamOptions{
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  strings.NewReader(commandArg),
 		Stdout: &stdout,
 		Stderr: &stderr,
@@ -96,6 +86,7 @@ func GetPodLogs(ctx context.Context, podInterface corev1client.PodInterface, nam
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { utilruntime.HandleError(stream.Close()) }()
 
 	return io.ReadAll(stream)

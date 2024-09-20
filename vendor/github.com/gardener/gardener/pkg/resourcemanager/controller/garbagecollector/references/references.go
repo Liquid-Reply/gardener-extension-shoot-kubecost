@@ -1,16 +1,6 @@
-// Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package references
 
@@ -20,8 +10,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gardener/gardener/pkg/utils"
-
 	appsv1 "k8s.io/api/apps/v1"
 	appsv1beta1 "k8s.io/api/apps/v1beta1"
 	appsv1beta2 "k8s.io/api/apps/v1beta2"
@@ -29,6 +17,9 @@ import (
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
+	"github.com/gardener/gardener/pkg/utils"
 )
 
 const (
@@ -80,8 +71,11 @@ func KindFromAnnotationKey(key string) string {
 	return split[0]
 }
 
-// InjectAnnotations injects annotations into the annotation maps based on the referenced ConfigMaps/Secrets appearing
-// in the pod template spec's `.volumes[]` or `.containers[].envFrom[]` or `.containers[].env[].valueFrom[]` lists.
+// InjectAnnotations injects annotations into the annotation maps based
+// on the referenced ConfigMaps/Secrets appearing in:
+//   - pod template spec's `.volumes[]` or `.containers[].envFrom[]` or `.containers[].env[].valueFrom[]` or `.imagePullSecrets[]` lists
+//   - managed resource spec's `.secretRefs`
+//
 // Additional reference annotations can be specified via the variadic parameter (expected format is that returned by
 // `AnnotationKey`).
 func InjectAnnotations(obj runtime.Object, additional ...string) error {
@@ -147,11 +141,28 @@ func InjectAnnotations(obj runtime.Object, additional ...string) error {
 		o.Spec.JobTemplate.Annotations = mergeAnnotations(o.Spec.JobTemplate.Annotations, referenceAnnotations)
 		o.Spec.JobTemplate.Spec.Template.Annotations = mergeAnnotations(o.Spec.JobTemplate.Spec.Template.Annotations, referenceAnnotations)
 
+	case *resourcesv1alpha1.ManagedResource:
+		referenceAnnotations := computeAnnotationsFromLocalObjRefs(o.Spec.SecretRefs, KindSecret, additional...)
+		o.Annotations = mergeAnnotations(o.Annotations, referenceAnnotations)
+
 	default:
 		return fmt.Errorf("unhandled object type %T", obj)
 	}
 
 	return nil
+}
+
+func computeAnnotationsFromLocalObjRefs(refs []corev1.LocalObjectReference, kind string, additional ...string) map[string]string {
+	out := make(map[string]string, len(refs)+len(additional))
+	for _, ref := range refs {
+		out[AnnotationKey(kind, ref.Name)] = ref.Name
+	}
+
+	for _, v := range additional {
+		out[v] = ""
+	}
+
+	return out
 }
 
 func computeAnnotations(spec corev1.PodSpec, additional ...string) map[string]string {
@@ -187,6 +198,22 @@ func computeAnnotations(spec corev1.PodSpec, additional ...string) map[string]st
 		if volume.ConfigMap != nil {
 			out[AnnotationKey(KindConfigMap, volume.ConfigMap.Name)] = volume.ConfigMap.Name
 		}
+
+		if volume.Projected != nil {
+			for _, source := range volume.Projected.Sources {
+				if source.Secret != nil {
+					out[AnnotationKey(KindSecret, source.Secret.Name)] = source.Secret.Name
+				}
+
+				if source.ConfigMap != nil {
+					out[AnnotationKey(KindConfigMap, source.ConfigMap.Name)] = source.ConfigMap.Name
+				}
+			}
+		}
+	}
+
+	for _, imagePullSecret := range spec.ImagePullSecrets {
+		out[AnnotationKey(KindSecret, imagePullSecret.Name)] = imagePullSecret.Name
 	}
 
 	for _, v := range additional {

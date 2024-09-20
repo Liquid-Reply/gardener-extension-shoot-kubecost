@@ -7,16 +7,12 @@ package main
 import (
 	"fmt"
 
-	"github.com/23technologies/gardener-extension-shoot-kubecost/cmd/gardener-extension-shoot-kubecost/app"
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/cmd/gardener-extension-shoot-kubecost/app"
 
-	"github.com/gardener/gardener/pkg/logger"
-	runtimelog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
 
 func main() {
-	runtimelog.SetLogger(logger.ZapLogger(false))
-
 	ctx := signals.SetupSignalHandler()
 	if err := app.NewServiceControllerCommand().ExecuteContext(ctx); err != nil {
 		fmt.Println(err)

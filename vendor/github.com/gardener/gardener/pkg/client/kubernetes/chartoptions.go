@@ -1,16 +1,6 @@
-// Copyright (c) 2020 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package kubernetes
 
@@ -27,7 +17,7 @@ type ApplyOption interface {
 // ApplyOptions contains options for apply requests
 type ApplyOptions struct {
 	// Values to pass to chart.
-	Values interface{}
+	Values any
 
 	// Additional MergeFunctions.
 	MergeFuncs MergeFuncs
@@ -38,10 +28,10 @@ type ApplyOptions struct {
 }
 
 // Values applies values to ApplyOptions or DeleteOptions.
-var Values = func(values interface{}) ValueOption { return &withValue{values} }
+var Values = func(values any) ValueOption { return &withValue{values} }
 
 type withValue struct {
-	values interface{}
+	values any
 }
 
 func (v withValue) MutateApplyOptions(opts *ApplyOptions) {
@@ -54,11 +44,11 @@ func (v withValue) MutateDeleteOptions(opts *DeleteOptions) {
 
 // MergeFuncs can be used modify the default merge functions for ApplyOptions:
 //
-// Apply(ctx, "chart", "my-ns", "my-release", MergeFuncs{
-// 		corev1.SchemeGroupVersion.WithKind("Service").GroupKind(): func(newObj, oldObj *unstructured.Unstructured) {
-// 			newObj.SetAnnotations(map[string]string{"foo":"bar"})
-// 		}
-// })
+//	Apply(ctx, "chart", "my-ns", "my-release", MergeFuncs{
+//			corev1.SchemeGroupVersion.WithKind("Service").GroupKind(): func(newObj, oldObj *unstructured.Unstructured) {
+//				newObj.SetAnnotations(map[string]string{"foo":"bar"})
+//			}
+//	})
 type MergeFuncs map[schema.GroupKind]MergeFunc
 
 // MutateApplyOptions applies this configuration to the given apply options.
@@ -95,7 +85,7 @@ type DeleteOption interface {
 // DeleteOptions contains options for delete requests
 type DeleteOptions struct {
 	// Values to pass to chart.
-	Values interface{}
+	Values any
 
 	// Forces the namespace for chart objects when applying the chart, this is because sometimes native chart
 	// objects do not come with a Release.Namespace option and leave the namespace field empty

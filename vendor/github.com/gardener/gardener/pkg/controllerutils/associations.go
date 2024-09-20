@@ -1,16 +1,6 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package controllerutils
 
@@ -18,18 +8,20 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gardener/gardener/pkg/apis/core"
-	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
-	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
-
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/gardener/gardener/pkg/apis/core"
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	"github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	securityv1alpha1 "github.com/gardener/gardener/pkg/apis/security/v1alpha1"
 )
 
 // DetermineShootsAssociatedTo gets a <shootLister> to determine the Shoots resources which are associated
-// to given <obj> (either a CloudProfile, Seed, Secretbinding a or a ExposureClass object).
-func DetermineShootsAssociatedTo(ctx context.Context, gardenClient client.Reader, obj interface{}) ([]string, error) {
+// to given <obj> (either a CloudProfile, NamespacedCloudProfile, Seed, Secretbinding, CredentialsBinding or a ExposureClass object).
+func DetermineShootsAssociatedTo(ctx context.Context, gardenClient client.Reader, obj any) ([]string, error) {
 	shootList := &gardencorev1beta1.ShootList{}
 	if err := gardenClient.List(ctx, shootList); err != nil {
 		return nil, err
@@ -41,22 +33,36 @@ func DetermineShootsAssociatedTo(ctx context.Context, gardenClient client.Reader
 		switch t := obj.(type) {
 		case *gardencorev1beta1.CloudProfile:
 			cloudProfile := obj.(*gardencorev1beta1.CloudProfile)
-			if shoot.Spec.CloudProfileName == cloudProfile.Name {
+			if ptr.Deref(shoot.Spec.CloudProfileName, "") == cloudProfile.Name ||
+				(shoot.Spec.CloudProfile != nil &&
+					shoot.Spec.CloudProfile.Kind == constants.CloudProfileReferenceKindCloudProfile &&
+					shoot.Spec.CloudProfile.Name == cloudProfile.Name) {
+				associatedShoots = append(associatedShoots, fmt.Sprintf("%s/%s", shoot.Namespace, shoot.Name))
+			}
+		case *gardencorev1beta1.NamespacedCloudProfile:
+			namespacedCloudProfile := obj.(*gardencorev1beta1.NamespacedCloudProfile)
+			if shoot.Spec.CloudProfile != nil && shoot.Spec.CloudProfile.Kind == constants.CloudProfileReferenceKindNamespacedCloudProfile &&
+				shoot.Spec.CloudProfile.Name == namespacedCloudProfile.Name {
 				associatedShoots = append(associatedShoots, fmt.Sprintf("%s/%s", shoot.Namespace, shoot.Name))
 			}
 		case *gardencorev1beta1.Seed:
 			seed := obj.(*gardencorev1beta1.Seed)
-			if shoot.Spec.SeedName != nil && *shoot.Spec.SeedName == seed.Name {
+			if ptr.Deref(shoot.Spec.SeedName, "") == seed.Name {
 				associatedShoots = append(associatedShoots, fmt.Sprintf("%s/%s", shoot.Namespace, shoot.Name))
 			}
 		case *gardencorev1beta1.SecretBinding:
 			binding := obj.(*gardencorev1beta1.SecretBinding)
-			if shoot.Spec.SecretBindingName == binding.Name && shoot.Namespace == binding.Namespace {
+			if ptr.Deref(shoot.Spec.SecretBindingName, "") == binding.Name && shoot.Namespace == binding.Namespace {
 				associatedShoots = append(associatedShoots, fmt.Sprintf("%s/%s", shoot.Namespace, shoot.Name))
 			}
-		case *gardencorev1alpha1.ExposureClass:
-			exposureClass := obj.(*gardencorev1alpha1.ExposureClass)
-			if shoot.Spec.ExposureClassName != nil && *shoot.Spec.ExposureClassName == exposureClass.Name {
+		case *securityv1alpha1.CredentialsBinding:
+			binding := obj.(*securityv1alpha1.CredentialsBinding)
+			if ptr.Deref(shoot.Spec.CredentialsBindingName, "") == binding.Name && shoot.Namespace == binding.Namespace {
+				associatedShoots = append(associatedShoots, fmt.Sprintf("%s/%s", shoot.Namespace, shoot.Name))
+			}
+		case *gardencorev1beta1.ExposureClass:
+			exposureClass := obj.(*gardencorev1beta1.ExposureClass)
+			if ptr.Deref(shoot.Spec.ExposureClassName, "") == exposureClass.Name {
 				associatedShoots = append(associatedShoots, fmt.Sprintf("%s/%s", shoot.Namespace, shoot.Name))
 			}
 		default:
@@ -67,10 +73,29 @@ func DetermineShootsAssociatedTo(ctx context.Context, gardenClient client.Reader
 	return associatedShoots, nil
 }
 
-// DetermineSecretBindingAssociations gets a <bindingLister> to determine the SecretBinding
-// resources which are associated to given Quota <obj>.
+// DetermineSecretBindingAssociations determines the SecretBinding resources
+// which are associated to given Quota <obj>.
 func DetermineSecretBindingAssociations(ctx context.Context, c client.Client, quota *gardencorev1beta1.Quota) ([]string, error) {
 	bindings := &gardencorev1beta1.SecretBindingList{}
+	if err := c.List(ctx, bindings); err != nil {
+		return nil, err
+	}
+
+	var associatedBindings []string
+	for _, binding := range bindings.Items {
+		for _, quotaRef := range binding.Quotas {
+			if quotaRef.Name == quota.Name && quotaRef.Namespace == quota.Namespace {
+				associatedBindings = append(associatedBindings, fmt.Sprintf("%s/%s", binding.Namespace, binding.Name))
+			}
+		}
+	}
+	return associatedBindings, nil
+}
+
+// DetermineCredentialsBindingAssociations determines the CredentialsBinding resources
+// which are associated to given Quota <obj>.
+func DetermineCredentialsBindingAssociations(ctx context.Context, c client.Client, quota *gardencorev1beta1.Quota) ([]string, error) {
+	bindings := &securityv1alpha1.CredentialsBindingList{}
 	if err := c.List(ctx, bindings); err != nil {
 		return nil, err
 	}
@@ -114,4 +139,13 @@ func determineAssociations(ctx context.Context, c client.Client, listObj client.
 		return nil
 	})
 	return associations, err
+}
+
+// GetNamespacedCloudProfilesReferencingCloudProfile determines the NamespacedCloudProfile resources which are associated to the given parent CloudProfile
+func GetNamespacedCloudProfilesReferencingCloudProfile(ctx context.Context, c client.Client, cloudProfileName string) (*gardencorev1beta1.NamespacedCloudProfileList, error) {
+	namespacedCloudProfileList := &gardencorev1beta1.NamespacedCloudProfileList{}
+	if err := c.List(ctx, namespacedCloudProfileList, client.MatchingFields{core.NamespacedCloudProfileParentRefName: cloudProfileName}); err != nil {
+		return nil, err
+	}
+	return namespacedCloudProfileList, nil
 }

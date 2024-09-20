@@ -1,53 +1,34 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package utils
 
 import (
+	"errors"
+	"fmt"
+	"math/big"
 	"net"
 	"regexp"
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ValueExists returns true or false, depending on whether the given string <value>
-// is part of the given []string list <list>.
-func ValueExists(value string, list []string) bool {
-	for _, v := range list {
-		if v == value {
-			return true
-		}
-	}
-	return false
-}
-
 // MergeMaps takes two maps <a>, <b> and merges them. If <b> defines a value with a key
 // already existing in the <a> map, the <a> value for that key will be overwritten.
-func MergeMaps(a, b map[string]interface{}) map[string]interface{} {
-	var values = map[string]interface{}{}
+func MergeMaps(a, b map[string]any) map[string]any {
+	var values = make(map[string]any, len(b))
 
 	for i, v := range b {
 		existing, ok := a[i]
 		values[i] = v
 
 		switch elem := v.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			if ok {
-				if extMap, ok := existing.(map[string]interface{}); ok {
+				if extMap, ok := existing.(map[string]any); ok {
 					values[i] = MergeMaps(extMap, elem)
 				}
 			}
@@ -67,11 +48,11 @@ func MergeMaps(a, b map[string]interface{}) map[string]interface{} {
 
 // MergeStringMaps merges the content of the newMaps with the oldMap. If a key already exists then
 // it gets overwritten by the last value with the same key.
-func MergeStringMaps(oldMap map[string]string, newMaps ...map[string]string) map[string]string {
-	var out map[string]string
+func MergeStringMaps[T any](oldMap map[string]T, newMaps ...map[string]T) map[string]T {
+	var out map[string]T
 
 	if oldMap != nil {
-		out = make(map[string]string)
+		out = make(map[string]T, len(oldMap))
 	}
 	for k, v := range oldMap {
 		out[k] = v
@@ -79,7 +60,7 @@ func MergeStringMaps(oldMap map[string]string, newMaps ...map[string]string) map
 
 	for _, newMap := range newMaps {
 		if newMap != nil && out == nil {
-			out = make(map[string]string)
+			out = make(map[string]T)
 		}
 
 		for k, v := range newMap {
@@ -88,6 +69,18 @@ func MergeStringMaps(oldMap map[string]string, newMaps ...map[string]string) map
 	}
 
 	return out
+}
+
+// CreateMapFromSlice converts the values of an array to a map using a key function.
+func CreateMapFromSlice[K comparable, T any](arr []T, keyFunc func(T) K) map[K]T {
+	mapped := make(map[K]T, len(arr))
+	if keyFunc == nil {
+		return mapped
+	}
+	for _, value := range arr {
+		mapped[keyFunc(value)] = value
+	}
+	return mapped
 }
 
 // TimeElapsed takes a <timestamp> and a <duration> checks whether the elapsed time until now is less than the <duration>.
@@ -110,19 +103,17 @@ func FindFreePort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
+// emailVefiryRegex is used to verify the validity of an email.
+var emailVefiryRegex = regexp.MustCompile(`^[^@]+@(?:[a-zA-Z-0-9]+\.)+[a-zA-Z]{2,}$`)
+
 // TestEmail validates the provided <email> against a regular expression and returns whether it matches.
 func TestEmail(email string) bool {
-	match, _ := regexp.MatchString(`^[^@]+@(?:[a-zA-Z-0-9]+\.)+[a-zA-Z]{2,}$`, email)
-	return match
-}
-
-// IsTrue returns true if the passed bool pointer is not nil and true.
-func IsTrue(value *bool) bool {
-	return value != nil && *value
+	return emailVefiryRegex.MatchString(email)
 }
 
 // IDForKeyWithOptionalValue returns an identifier for the given key + optional value.
@@ -134,24 +125,14 @@ func IDForKeyWithOptionalValue(key string, value *string) string {
 	return key + v
 }
 
-// QuantityPtr returns a Quantity pointer to its argument.
-func QuantityPtr(q resource.Quantity) *resource.Quantity {
-	return &q
-}
-
-// DurationPtr returns a time.Duration pointer to its argument.
-func DurationPtr(d time.Duration) *time.Duration {
-	return &d
-}
-
 // Indent indents the given string with the given number of spaces.
 func Indent(str string, spaces int) string {
 	return strings.ReplaceAll(str, "\n", "\n"+strings.Repeat(" ", spaces))
 }
 
 // ShallowCopyMapStringInterface creates a shallow copy of the given map.
-func ShallowCopyMapStringInterface(values map[string]interface{}) map[string]interface{} {
-	copiedValues := make(map[string]interface{}, len(values))
+func ShallowCopyMapStringInterface(values map[string]any) map[string]any {
+	copiedValues := make(map[string]any, len(values))
 	for k, v := range values {
 		copiedValues[k] = v
 	}
@@ -165,4 +146,74 @@ func IifString(condition bool, onTrue, onFalse string) string {
 		return onTrue
 	}
 	return onFalse
+}
+
+// InterfaceMapToStringMap translates map[string]any to map[string]string.
+func InterfaceMapToStringMap(in map[string]any) map[string]string {
+	m := make(map[string]string, len(in))
+	for k, v := range in {
+		m[k] = fmt.Sprint(v)
+	}
+	return m
+}
+
+// FilterEntriesByPrefix returns a list of strings which begin with the given prefix.
+func FilterEntriesByPrefix(prefix string, entries []string) []string {
+	var result []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry, prefix) {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+// FilterEntriesByFilterFn returns a list of entries which passes the filter function.
+func FilterEntriesByFilterFn(entries []string, filterFn func(entry string) bool) []string {
+	var result []string
+	for _, entry := range entries {
+		if filterFn != nil && !filterFn(entry) {
+			continue
+		}
+
+		result = append(result, entry)
+	}
+	return result
+}
+
+// ComputeOffsetIP parses the provided <subnet> and offsets with the value of <offset>.
+// For example, <subnet> = 100.64.0.0/11 and <offset> = 10 the result would be 100.64.0.10
+// IPv6 and IPv4 is supported.
+func ComputeOffsetIP(subnet *net.IPNet, offset int64) (net.IP, error) {
+	if subnet == nil {
+		return nil, errors.New("subnet is nil")
+	}
+
+	isIPv6 := false
+
+	bytes := subnet.IP.To4()
+	if bytes == nil {
+		isIPv6 = true
+		bytes = subnet.IP.To16()
+	}
+
+	ip := net.IP(big.NewInt(0).Add(big.NewInt(0).SetBytes(bytes), big.NewInt(offset)).Bytes())
+
+	if !subnet.Contains(ip) {
+		return nil, fmt.Errorf("cannot compute IP with offset %d - subnet %q too small", offset, subnet)
+	}
+
+	// there is no broadcast address on IPv6
+	if isIPv6 {
+		return ip, nil
+	}
+
+	for i := range ip {
+		// IP address is not the same, so it's not the broadcast ip.
+		if ip[i] != ip[i]|^subnet.Mask[i] {
+			return ip.To4(), nil
+		}
+	}
+
+	return nil, fmt.Errorf("computed IPv4 address %q is broadcast for subnet %q", ip, subnet)
 }

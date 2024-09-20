@@ -8,9 +8,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/23technologies/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/util"
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -56,10 +56,10 @@ func (o *Options) run(ctx context.Context) error {
 	mgrOpts := o.managerOptions.Completed().Options()
 
 	// do not enable a metrics server for the quick start
-	mgrOpts.MetricsBindAddress = "0"
+	mgrOpts.Metrics.BindAddress = "0"
 
-	mgrOpts.ClientDisableCacheFor = []client.Object{
-		&corev1.Secret{},    // applied for ManagedResources
+	mgrOpts.Client.Cache.DisableFor = []client.Object{
+		&corev1.Secret{}, // applied for ManagedResources
 	}
 
 	mgr, err := manager.New(o.restOptions.Completed().Config, mgrOpts)
@@ -74,7 +74,7 @@ func (o *Options) run(ctx context.Context) error {
 	o.controllerOptions.Completed().Apply(&lifecycle.DefaultAddOptions.ControllerOptions)
 	o.lifecycleOptions.Completed().Apply(&lifecycle.DefaultAddOptions.ControllerOptions)
 
-	if err := o.controllerSwitches.Completed().AddToManager(mgr); err != nil {
+	if err := o.controllerSwitches.Completed().AddToManager(ctx, mgr); err != nil {
 		return fmt.Errorf("could not add controllers to manager: %s", err)
 	}
 

@@ -1,30 +1,21 @@
-// Copyright (c) 2019 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package predicate
 
 import (
-	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
-	gardencore "github.com/gardener/gardener/pkg/api/core"
-	"github.com/gardener/gardener/pkg/api/extensions"
-	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
-	"github.com/gardener/gardener/pkg/utils/version"
-
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
+	gardencore "github.com/gardener/gardener/pkg/api/core"
+	"github.com/gardener/gardener/pkg/api/extensions"
+	gardensecurity "github.com/gardener/gardener/pkg/api/security"
+	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 )
 
 var logger = log.Log.WithName("predicate")
@@ -59,6 +50,28 @@ func AddTypePredicate(predicates []predicate.Predicate, extensionTypes ...string
 	}
 
 	return append(resultPredicates, predicate.Or(orPreds...))
+}
+
+// HasClass filters the incoming objects for the given extension class.
+// For backwards compatibility, if the extension class is unset, it is assumed that the extension belongs to a shoot cluster.
+// An empty given 'extensionClass' is likewise treated to be of class 'shoot'.
+func HasClass(extensionClass extensionsv1alpha1.ExtensionClass) predicate.Predicate {
+	if extensionClass == "" {
+		extensionClass = extensionsv1alpha1.ExtensionClassShoot
+	}
+
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		if obj == nil {
+			return false
+		}
+
+		accessor, err := extensions.Accessor(obj)
+		if err != nil {
+			return false
+		}
+
+		return ptr.Deref(accessor.GetExtensionSpec().GetExtensionClass(), extensionsv1alpha1.ExtensionClassShoot) == extensionClass
+	})
 }
 
 // HasPurpose filters the incoming ControlPlanes for the given spec.purpose.
@@ -149,34 +162,19 @@ func GardenCoreProviderType(providerType string) predicate.Predicate {
 	}
 }
 
-// ClusterShootKubernetesVersionForCSIMigrationAtLeast is a predicate for the kubernetes version of the shoot in the cluster resource.
-func ClusterShootKubernetesVersionForCSIMigrationAtLeast(kubernetesVersion string) predicate.Predicate {
+// GardenSecurityProviderType is a predicate for the provider type of a `gardensecurity.Object` implementation.
+func GardenSecurityProviderType(providerType string) predicate.Predicate {
 	f := func(obj client.Object) bool {
 		if obj == nil {
 			return false
 		}
 
-		cluster, ok := obj.(*extensionsv1alpha1.Cluster)
-		if !ok {
-			return false
-		}
-
-		shoot, err := extensionscontroller.ShootFromCluster(cluster)
+		accessor, err := gardensecurity.Accessor(obj)
 		if err != nil {
 			return false
 		}
 
-		kubernetesVersionForCSIMigration := kubernetesVersion
-		if overwrite, ok := shoot.Annotations[extensionsv1alpha1.ShootAlphaCSIMigrationKubernetesVersion]; ok {
-			kubernetesVersionForCSIMigration = overwrite
-		}
-
-		constraint, err := version.CompareVersions(shoot.Spec.Kubernetes.Version, ">=", kubernetesVersionForCSIMigration)
-		if err != nil {
-			return false
-		}
-
-		return constraint
+		return accessor.GetProviderType() == providerType
 	}
 
 	return predicate.Funcs{

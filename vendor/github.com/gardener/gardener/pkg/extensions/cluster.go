@@ -1,16 +1,6 @@
-// Copyright (c) 2020 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package extensions
 
@@ -18,17 +8,15 @@ import (
 	"context"
 	"fmt"
 
-	gardencorev1alpha1 "github.com/gardener/gardener/pkg/apis/core/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/controllerutils"
-	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // SyncClusterResourceToSeed creates or updates the `extensions.gardener.cloud/v1alpha1.Cluster` resource in the seed
@@ -110,7 +98,7 @@ type Cluster struct {
 // GetCluster tries to read Gardener's Cluster extension resource in the given namespace.
 func GetCluster(ctx context.Context, c client.Reader, namespace string) (*Cluster, error) {
 	cluster := &extensionsv1alpha1.Cluster{}
-	if err := c.Get(ctx, kutil.Key(namespace), cluster); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, cluster); err != nil {
 		return nil, err
 	}
 
@@ -193,19 +181,19 @@ func GenericTokenKubeconfigSecretNameFromCluster(cluster *Cluster) string {
 
 // GetShootStateForCluster retrieves the ShootState and the Shoot resources for a given Cluster name by first fetching
 // the *extensionsv1alpha1.Cluster object in the seed, extracting the Shoot resource from it and then fetching the
-// *gardencorev1alpha1.ShootState resource from the garden.
+// *gardencorev1beta1.ShootState resource from the garden.
 func GetShootStateForCluster(
 	ctx context.Context,
 	gardenClient client.Client,
 	seedClient client.Client,
 	clusterName string,
 ) (
-	*gardencorev1alpha1.ShootState,
+	*gardencorev1beta1.ShootState,
 	*gardencorev1beta1.Shoot,
 	error,
 ) {
 	cluster := &extensionsv1alpha1.Cluster{}
-	if err := seedClient.Get(ctx, kutil.Key(clusterName), cluster); err != nil {
+	if err := seedClient.Get(ctx, client.ObjectKey{Name: clusterName}, cluster); err != nil {
 		return nil, nil, err
 	}
 
@@ -218,8 +206,8 @@ func GetShootStateForCluster(
 		return nil, nil, fmt.Errorf("cluster resource %s doesn't contain shoot resource in raw format", cluster.Name)
 	}
 
-	shootState := &gardencorev1alpha1.ShootState{}
-	if err := gardenClient.Get(ctx, kutil.Key(shoot.Namespace, shoot.Name), shootState); err != nil {
+	shootState := &gardencorev1beta1.ShootState{}
+	if err := gardenClient.Get(ctx, client.ObjectKey{Namespace: shoot.Namespace, Name: shoot.Name}, shootState); err != nil {
 		return nil, nil, err
 	}
 
@@ -229,7 +217,7 @@ func GetShootStateForCluster(
 // GetShoot tries to read Gardener's Cluster extension resource in the given namespace and return the embedded Shoot resource.
 func GetShoot(ctx context.Context, c client.Reader, namespace string) (*gardencorev1beta1.Shoot, error) {
 	cluster := &extensionsv1alpha1.Cluster{}
-	if err := c.Get(ctx, kutil.Key(namespace), cluster); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, cluster); err != nil {
 		return nil, err
 	}
 

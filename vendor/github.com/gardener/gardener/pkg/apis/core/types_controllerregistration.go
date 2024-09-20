@@ -1,16 +1,6 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package core
 
@@ -45,14 +35,14 @@ type ControllerRegistrationList struct {
 
 // ControllerRegistrationSpec is the specification of a ControllerRegistration.
 type ControllerRegistrationSpec struct {
-	// Resources is a list of combinations of kinds (DNSProvider, Infrastructure, Generic, ...) and their actual types
+	// Resources is a list of combinations of kinds (Infrastructure, Generic, ...) and their actual types
 	// (aws-route53, gcp, auditlog, ...).
 	Resources []ControllerResource
 	// Deployment contains information for how this controller is deployed.
 	Deployment *ControllerRegistrationDeployment
 }
 
-// ControllerResource is a combination of a kind (DNSProvider, Infrastructure, Generic, ...) and the actual type for this
+// ControllerResource is a combination of a kind (Infrastructure, Generic, ...) and the actual type for this
 // kind (aws-route53, gcp, auditlog, ...).
 type ControllerResource struct {
 	// Kind is the resource kind.
@@ -60,13 +50,24 @@ type ControllerResource struct {
 	// Type is the resource type.
 	Type string
 	// GloballyEnabled determines if this resource is required by all Shoot clusters.
+	// This field is defaulted to false when kind is "Extension".
 	GloballyEnabled *bool
 	// ReconcileTimeout defines how long Gardener should wait for the resource reconciliation.
+	// This field is defaulted to 3m0s when kind is "Extension".
 	ReconcileTimeout *metav1.Duration
 	// Primary determines if the controller backed by this ControllerRegistration is responsible for the extension
 	// resource's lifecycle. This field defaults to true. There must be exactly one primary controller for this kind/type
 	// combination. This field is immutable.
 	Primary *bool
+	// Lifecycle defines a strategy that determines when different operations on a ControllerResource should be performed.
+	// This field is defaulted in the following way when kind is "Extension".
+	//  Reconcile: "AfterKubeAPIServer"
+	//  Delete: "BeforeKubeAPIServer"
+	//  Migrate: "BeforeKubeAPIServer"
+	Lifecycle *ControllerResourceLifecycle
+	// WorkerlessSupported specifies whether this ControllerResource supports Workerless Shoot clusters.
+	// This field is only relevant when kind is "Extension".
+	WorkerlessSupported *bool
 }
 
 // DeploymentRef contains information about `ControllerDeployment` references.
@@ -83,7 +84,7 @@ type ControllerRegistrationDeployment struct {
 	// considered for a deployment.
 	// An empty list means that all seeds are selected.
 	SeedSelector *metav1.LabelSelector
-	// DeploymentRefs holds references to `ControllerDeployments`. Only one element is support now.
+	// DeploymentRefs holds references to `ControllerDeployments`. Only one element is supported currently.
 	DeploymentRefs []DeploymentRef
 }
 
@@ -101,3 +102,25 @@ const (
 	// whether another resource requires it, but only when the respective seed has at least one shoot.
 	ControllerDeploymentPolicyAlwaysExceptNoShoots ControllerDeploymentPolicy = "AlwaysExceptNoShoots"
 )
+
+// ControllerResourceLifecycleStrategy is a string alias.
+type ControllerResourceLifecycleStrategy string
+
+const (
+	// BeforeKubeAPIServer specifies that a resource should be handled before the kube-apiserver.
+	BeforeKubeAPIServer ControllerResourceLifecycleStrategy = "BeforeKubeAPIServer"
+	// AfterKubeAPIServer specifies that a resource should be handled after the kube-apiserver.
+	AfterKubeAPIServer ControllerResourceLifecycleStrategy = "AfterKubeAPIServer"
+	// AfterWorker specifies that a resource should be handled after workers. This is only available during reconcile.
+	AfterWorker ControllerResourceLifecycleStrategy = "AfterWorker"
+)
+
+// ControllerResourceLifecycle defines the lifecycle of a controller resource.
+type ControllerResourceLifecycle struct {
+	// Reconcile defines the strategy during reconciliation.
+	Reconcile *ControllerResourceLifecycleStrategy
+	// Delete defines the strategy during deletion.
+	Delete *ControllerResourceLifecycleStrategy
+	// Migrate defines the strategy during migration.
+	Migrate *ControllerResourceLifecycleStrategy
+}

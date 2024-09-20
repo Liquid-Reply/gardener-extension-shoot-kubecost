@@ -1,30 +1,17 @@
-// Copyright (c) 2018 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package secrets
 
 import (
 	"fmt"
-	"sort"
 	"strings"
-
-	"github.com/gardener/gardener/pkg/utils/infodata"
 )
 
 const (
 	// DataKeyStaticTokenCSV is the key in a secret data holding the CSV format of a secret.
-	DataKeyStaticTokenCSV = "static_tokens.csv"
+	DataKeyStaticTokenCSV = "static_tokens.csv" // #nosec G101 -- No credential.
 	// DataKeyToken is the key in a secret data holding the token.
 	DataKeyToken = "token"
 )
@@ -65,70 +52,6 @@ func (s *StaticTokenSecretConfig) GetName() string {
 
 // Generate implements ConfigInterface.
 func (s *StaticTokenSecretConfig) Generate() (DataInterface, error) {
-	return s.GenerateStaticToken()
-}
-
-// GenerateInfoData implements ConfigInterface.
-func (s *StaticTokenSecretConfig) GenerateInfoData() (infodata.InfoData, error) {
-	tokens := make(map[string]string)
-
-	for username := range s.Tokens {
-		token, err := GenerateRandomString(128)
-		if err != nil {
-			return nil, err
-		}
-		tokens[username] = token
-	}
-
-	return NewStaticTokenInfoData(tokens), nil
-}
-
-// GenerateFromInfoData implements ConfigInterface.
-func (s *StaticTokenSecretConfig) GenerateFromInfoData(infoData infodata.InfoData) (DataInterface, error) {
-	data, ok := infoData.(*StaticTokenInfoData)
-	if !ok {
-		return nil, fmt.Errorf("could not convert InfoData entry %s to StaticTokenInfoData", s.Name)
-	}
-
-	var usernames []string
-	for username := range data.Tokens {
-		usernames = append(usernames, username)
-	}
-	sort.Strings(usernames)
-
-	tokens := make([]Token, 0, len(s.Tokens))
-	for _, username := range usernames {
-		tokens = append(tokens, Token{
-			Username: s.Tokens[username].Username,
-			UserID:   s.Tokens[username].UserID,
-			Groups:   s.Tokens[username].Groups,
-			Token:    data.Tokens[username],
-		})
-	}
-
-	return &StaticToken{
-		Name:   s.Name,
-		Tokens: tokens,
-	}, nil
-}
-
-// LoadFromSecretData implements infodata.Loader.
-func (s *StaticTokenSecretConfig) LoadFromSecretData(secretData map[string][]byte) (infodata.InfoData, error) {
-	staticToken, err := LoadStaticTokenFromCSV(s.Name, secretData[DataKeyStaticTokenCSV])
-	if err != nil {
-		return nil, err
-	}
-
-	tokens := make(map[string]string)
-	for _, token := range staticToken.Tokens {
-		tokens[token.Username] = token.Token
-	}
-
-	return NewStaticTokenInfoData(tokens), nil
-}
-
-// GenerateStaticToken computes a random token of length 128.
-func (s *StaticTokenSecretConfig) GenerateStaticToken() (*StaticToken, error) {
 	tokens := make([]Token, 0, len(s.Tokens))
 
 	for _, tokenConfig := range s.Tokens {

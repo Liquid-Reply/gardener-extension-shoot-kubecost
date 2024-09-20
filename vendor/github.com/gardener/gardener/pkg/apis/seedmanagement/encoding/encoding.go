@@ -1,16 +1,6 @@
-// Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package encoding
 
@@ -18,16 +8,16 @@ import (
 	"bytes"
 	"fmt"
 
-	gardencore "github.com/gardener/gardener/pkg/apis/core"
-	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
-	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
-	configv1alpha1 "github.com/gardener/gardener/pkg/gardenlet/apis/config/v1alpha1"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/runtime/serializer/versioning"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+
+	gardencore "github.com/gardener/gardener/pkg/apis/core"
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
+	gardenletv1alpha1 "github.com/gardener/gardener/pkg/gardenlet/apis/config/v1alpha1"
 )
 
 var scheme *runtime.Scheme
@@ -38,22 +28,22 @@ func init() {
 	utilruntime.Must(gardencore.AddToScheme(scheme))
 	utilruntime.Must(gardencorev1beta1.AddToScheme(scheme))
 	utilruntime.Must(config.AddToScheme(scheme))
-	utilruntime.Must(configv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(gardenletv1alpha1.AddToScheme(scheme))
 }
 
 // DecodeGardenletConfiguration decodes the given raw extension into an external GardenletConfiguration version.
-func DecodeGardenletConfiguration(rawConfig *runtime.RawExtension, withDefaults bool) (*configv1alpha1.GardenletConfiguration, error) {
-	if cfg, ok := rawConfig.Object.(*configv1alpha1.GardenletConfiguration); ok {
+func DecodeGardenletConfiguration(rawConfig *runtime.RawExtension, withDefaults bool) (*gardenletv1alpha1.GardenletConfiguration, error) {
+	if cfg, ok := rawConfig.Object.(*gardenletv1alpha1.GardenletConfiguration); ok {
 		return cfg, nil
 	}
 	return DecodeGardenletConfigurationFromBytes(rawConfig.Raw, withDefaults)
 }
 
 // DecodeGardenletConfigurationFromBytes decodes the given byte slice into an external GardenletConfiguration version.
-func DecodeGardenletConfigurationFromBytes(bytes []byte, withDefaults bool) (*configv1alpha1.GardenletConfiguration, error) {
-	cfg := &configv1alpha1.GardenletConfiguration{
+func DecodeGardenletConfigurationFromBytes(bytes []byte, withDefaults bool) (*gardenletv1alpha1.GardenletConfiguration, error) {
+	cfg := &gardenletv1alpha1.GardenletConfiguration{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: configv1alpha1.SchemeGroupVersion.String(),
+			APIVersion: gardenletv1alpha1.SchemeGroupVersion.String(),
 			Kind:       "GardenletConfiguration",
 		},
 	}
@@ -64,7 +54,7 @@ func DecodeGardenletConfigurationFromBytes(bytes []byte, withDefaults bool) (*co
 }
 
 // EncodeGardenletConfiguration encodes the given external GardenletConfiguration version into a raw extension.
-func EncodeGardenletConfiguration(cfg *configv1alpha1.GardenletConfiguration) (*runtime.RawExtension, error) {
+func EncodeGardenletConfiguration(cfg *gardenletv1alpha1.GardenletConfiguration) (*runtime.RawExtension, error) {
 	raw, err := EncodeGardenletConfigurationToBytes(cfg)
 	if err != nil {
 		return nil, err
@@ -76,12 +66,14 @@ func EncodeGardenletConfiguration(cfg *configv1alpha1.GardenletConfiguration) (*
 }
 
 // EncodeGardenletConfigurationToBytes encodes the given external GardenletConfiguration version into a byte slice.
-func EncodeGardenletConfigurationToBytes(cfg *configv1alpha1.GardenletConfiguration) ([]byte, error) {
-	encoder, err := getEncoder(configv1alpha1.SchemeGroupVersion, runtime.ContentTypeJSON)
+func EncodeGardenletConfigurationToBytes(cfg *gardenletv1alpha1.GardenletConfiguration) ([]byte, error) {
+	encoder, err := getEncoder(gardenletv1alpha1.SchemeGroupVersion, runtime.ContentTypeJSON)
 	if err != nil {
 		return nil, err
 	}
+
 	var b bytes.Buffer
+
 	if err := encoder.Encode(cfg, &b); err != nil {
 		return nil, err
 	}
@@ -94,7 +86,6 @@ func getDecoder(withDefaulter bool) runtime.Decoder {
 	}
 	return versioning.NewCodec(nil, serializer.NewCodecFactory(scheme).UniversalDeserializer(), runtime.UnsafeObjectConvertor(scheme),
 		scheme, scheme, nil, runtime.DisabledGroupVersioner, runtime.InternalGroupVersioner, scheme.Name())
-
 }
 
 func getEncoder(gv runtime.GroupVersioner, mediaType string) (runtime.Encoder, error) {

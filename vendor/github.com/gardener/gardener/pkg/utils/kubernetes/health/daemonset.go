@@ -1,16 +1,6 @@
-// Copyright (c) 2021 SAP SE or an SAP affiliate company. All rights reserved. This file is licensed under the Apache Software License, v. 2 except as noted otherwise in the LICENSE file
+// SPDX-FileCopyrightText: 2024 SAP SE or an SAP affiliate company and Gardener contributors
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// SPDX-License-Identifier: Apache-2.0
 
 package health
 
@@ -31,7 +21,7 @@ func daemonSetMaxUnavailable(daemonSet *appsv1.DaemonSet) int32 {
 		return 0
 	}
 
-	maxUnavailable, err := intstr.GetValueFromIntOrPercent(rollingUpdate.MaxUnavailable, int(daemonSet.Status.DesiredNumberScheduled), false)
+	maxUnavailable, err := intstr.GetScaledValueFromIntOrPercent(rollingUpdate.MaxUnavailable, int(daemonSet.Status.DesiredNumberScheduled), false)
 	if err != nil {
 		return 0
 	}
@@ -67,4 +57,20 @@ func CheckDaemonSet(daemonSet *appsv1.DaemonSet) error {
 	}
 
 	return nil
+}
+
+// IsDaemonSetProgressing returns false if the DaemonSet has been fully rolled out. Otherwise, it returns true along
+// with a reason, why the DaemonSet is not considered to be fully rolled out.
+func IsDaemonSetProgressing(daemonSet *appsv1.DaemonSet) (bool, string) {
+	if daemonSet.Status.ObservedGeneration < daemonSet.Generation {
+		return true, fmt.Sprintf("observed generation outdated (%d/%d)", daemonSet.Status.ObservedGeneration, daemonSet.Generation)
+	}
+
+	desiredReplicas := daemonSet.Status.DesiredNumberScheduled
+	updatedReplicas := daemonSet.Status.UpdatedNumberScheduled
+	if updatedReplicas < desiredReplicas {
+		return true, fmt.Sprintf("%d of %d replica(s) have been updated", updatedReplicas, desiredReplicas)
+	}
+
+	return false, "DaemonSet is fully rolled out"
 }
