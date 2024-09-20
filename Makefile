@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 EXTENSION_PREFIX            := gardener-extension
-NAME                        := mwe
+NAME                        := shoot-kubecost
 REGISTRY                    := eu.gcr.io/gardener-project/gardener
 IMAGE_PREFIX                := $(REGISTRY)/extensions
 REPO_ROOT                   := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))

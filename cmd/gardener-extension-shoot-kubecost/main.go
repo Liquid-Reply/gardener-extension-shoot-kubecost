@@ -7,7 +7,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/23technologies/gardener-extension-mwe/cmd/gardener-extension-mwe/app"
+	"github.com/23technologies/gardener-extension-shoot-kubecost/cmd/gardener-extension-shoot-kubecost/app"
 
 	"github.com/gardener/gardener/pkg/logger"
 	runtimelog "sigs.k8s.io/controller-runtime/pkg/log"

@@ -1,4 +1,4 @@
-module github.com/23technologies/gardener-extension-mwe
+module github.com/23technologies/gardener-extension-shoot-kubecost
 
 go 1.16
 

@@ -7,5 +7,5 @@
 {{- end }}
 
 {{- define "leaderelectionid" -}}
-extension-mwe-leader-election
+extension-shoot-kubecost-leader-election
 {{- end -}}

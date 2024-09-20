@@ -1,4 +1,4 @@
-# Gardener Extension Mininal Working Example (MWE)
+# Gardener Extension KubeCost
 
 [![reuse compliant](https://reuse.software/badge/reuse-compliant.svg)](https://reuse.software/)
 
@@ -10,7 +10,7 @@ However, the project has grown to a size where it is very hard to extend, mainta
 With [GEP-1](https://github.com/gardener/gardener/blob/master/docs/proposals/01-extensibility.md) we have proposed how the architecture can be changed in a way to support external controllers that contain their very own vendor specifics.
 This way, we can keep Gardener core clean and independent.
 
-This controller implements Gardener's extension contract for the `mwe` extension.
+This controller implements Gardener's extension contract for the `shoot-kubecost` extension.
 
 Please find more information regarding the extensibility concepts and a detailed proposal [here](https://github.com/gardener/gardener/blob/master/docs/proposals/01-extensibility.md).
 

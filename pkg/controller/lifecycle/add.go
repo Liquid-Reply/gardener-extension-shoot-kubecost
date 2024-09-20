@@ -12,10 +12,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-// DefaultAddOptions contains configuration for the mwe controller 
+// DefaultAddOptions contains configuration for the shoot-kubecost controller 
 var DefaultAddOptions = AddOptions{}
 
-// AddOptions are options to apply when adding the mwe controller to the manager.
+// AddOptions are options to apply when adding the shoot-kubecost controller to the manager.
 type AddOptions struct {
 	// ControllerOptions contains options for the controller.
 	ControllerOptions controller.Options
@@ -23,15 +23,15 @@ type AddOptions struct {
 	IgnoreOperationAnnotation bool
 }
 
-// AddToManager adds a mwe Lifecycle controller to the given Controller Manager.
+// AddToManager adds a shoot-kubecost Lifecycle controller to the given Controller Manager.
 func AddToManager(mgr manager.Manager) error {
 	return extension.Add(mgr, extension.AddArgs{
 		Actuator:          NewActuator(),
 		ControllerOptions: DefaultAddOptions.ControllerOptions,
-		Name:              "mwe_lifecycle_controller",
-		FinalizerSuffix:   "mwe",
+		Name:              "shoot-kubecost_lifecycle_controller",
+		FinalizerSuffix:   "shoot-kubecost",
 		Resync:            60 * time.Minute,
 		Predicates:        extension.DefaultPredicates(DefaultAddOptions.IgnoreOperationAnnotation),
-		Type:              "mwe",
+		Type:              "shoot-kubecost",
 	})
 }

@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/23technologies/gardener-extension-mwe/pkg/controller/lifecycle"
+	"github.com/23technologies/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/util"
 
@@ -20,12 +20,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-// NewServiceControllerCommand creates a new command that is used to start the mwe controller
+// NewServiceControllerCommand creates a new command that is used to start the shoot-kubecost controller
 func NewServiceControllerCommand() *cobra.Command {
 	options := NewOptions()
 
 	cmd := &cobra.Command{
-		Use:           "gardener-extension-mwe",
+		Use:           "gardener-extension-shoot-kubecost",
 		Short:         "Minimal working example controller does nothing special",
 		SilenceErrors: true,
 

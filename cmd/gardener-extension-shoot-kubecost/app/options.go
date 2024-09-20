@@ -7,14 +7,14 @@ package app
 import (
 	"os"
 
-	"github.com/23technologies/gardener-extension-mwe/pkg/controller/lifecycle"
+	"github.com/23technologies/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 	controllercmd "github.com/gardener/gardener/extensions/pkg/controller/cmd"
 )
 
 // ExtensionName is the name of the extension.
-const ExtensionName = "mwe"
+const ExtensionName = "shoot-kubecost"
 
-// Options holds configuration passed to the mwe controller.
+// Options holds configuration passed to the shoot-kubecost controller.
 type Options struct {
 	generalOptions     *controllercmd.GeneralOptions
 	restOptions        *controllercmd.RESTOptions
@@ -52,7 +52,7 @@ func NewOptions() *Options {
 		},
 		reconcileOptions: &controllercmd.ReconcilerOptions{},
 		controllerSwitches: controllercmd.NewSwitchOptions(
-			controllercmd.Switch("mwe_lifecycle_controller", lifecycle.AddToManager)),
+			controllercmd.Switch("shoot-kubecost_lifecycle_controller", lifecycle.AddToManager)),
 	}
 
 	options.optionAggregator = controllercmd.NewOptionAggregator(

@@ -108,4 +108,4 @@ spec:
       autoscaling:
         mode: horizontal
   extensions:
-    - type: mwe
+    - type: shoot-kubecost

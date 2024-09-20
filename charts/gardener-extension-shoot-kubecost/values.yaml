@@ -4,11 +4,11 @@
 
 ---
 image:
-  repository: ghcr.io/23technologies/gardener-extension-mwe
+  repository: ghcr.io/23technologies/gardener-extension-shoot-kubecost
   tag: latest
   pullPolicy: IfNotPresent
 
-serviceName: mwe
+serviceName: shoot-kubecost
 replicaCount: 1
 ignoreResources: false
 

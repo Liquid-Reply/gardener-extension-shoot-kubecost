@@ -5,7 +5,7 @@
 apiVersion: extensions.gardener.cloud/v1alpha1
 kind: Extension
 metadata:
-  name: mwe
+  name: shoot-kubecost
   namespace: shoot--foo--bar
 spec:
-  type: mwe
+  type: shoot-kubecost
