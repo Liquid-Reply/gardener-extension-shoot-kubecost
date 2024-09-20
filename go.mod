@@ -2,6 +2,8 @@ module github.com/liquid-reply/gardener-extension-shoot-kubecost
 
 go 1.23.1
 
+replace k8s.io/code-generator => k8s.io/code-generator v0.29.9
+
 require (
 	github.com/ahmetb/gen-crd-api-reference-docs v0.3.0
 	github.com/gardener/gardener v1.104.0
@@ -9,6 +11,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/tools v0.25.0
 	k8s.io/api v0.29.9
+	k8s.io/apimachinery v0.29.9
 	k8s.io/code-generator v0.29.9
 	k8s.io/component-base v0.29.9
 	sigs.k8s.io/controller-runtime v0.17.6
@@ -110,7 +113,6 @@ require (
 	istio.io/api v1.22.4 // indirect
 	istio.io/client-go v1.22.0 // indirect
 	k8s.io/apiextensions-apiserver v0.29.9 // indirect
-	k8s.io/apimachinery v0.29.9 // indirect
 	k8s.io/autoscaler/vertical-pod-autoscaler v1.2.1 // indirect
 	k8s.io/client-go v0.29.9 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
