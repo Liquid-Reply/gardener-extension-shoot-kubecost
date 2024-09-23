@@ -25,6 +25,8 @@ jobs:
       - name: git update
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/$GITHUB_REPOSITORY
           git add vendor
           git commit -m "run make revendor" vendor
