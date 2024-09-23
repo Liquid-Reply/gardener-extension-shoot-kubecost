@@ -11,7 +11,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/tools v0.25.0
 	k8s.io/api v0.29.9
-	k8s.io/apimachinery v0.29.9
+	k8s.io/apimachinery v0.30.5
 	k8s.io/code-generator v0.29.9
 	k8s.io/component-base v0.29.9
 	sigs.k8s.io/controller-runtime v0.17.6
@@ -116,10 +116,11 @@ require (
 	k8s.io/autoscaler/vertical-pod-autoscaler v1.2.1 // indirect
 	k8s.io/client-go v0.29.9 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
+	k8s.io/gengo/v2 v2.0.0-20240228010128-51d4e06bde70 // indirect
 	k8s.io/klog v1.0.0 // indirect
 	k8s.io/klog/v2 v2.120.1 // indirect
 	k8s.io/kube-aggregator v0.29.9 // indirect
-	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00 // indirect
+	k8s.io/kube-openapi v0.0.0-20240228011516-70dd3763d340 // indirect
 	k8s.io/kubelet v0.29.9 // indirect
 	k8s.io/metrics v0.29.9 // indirect
 	k8s.io/utils v0.0.0-20240902221715-702e33fdd3c3 // indirect
