@@ -1,0 +1,31 @@
+name: Dependabot revendor
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  build:
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Dependabot metadata
+        id: dependabot-metadata
+        uses: dependabot/fetch-metadata@v1
+      - uses: actions/checkout@v3
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'gomod' }}
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run revendor
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'gomod' }}
+        run: make revendor
+      - name: git update
+        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'gomod' }}
+        run: |
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/$GITHUB_REPOSITORY
+          git add vendor
+          git commit -m "run make revendor" vendor
+          git push -u origin HEAD:${{ github.event.pull_request.head.ref }}
