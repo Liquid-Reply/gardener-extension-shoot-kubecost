@@ -17,17 +17,12 @@ jobs:
       - uses: actions/checkout@v3
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         with:
+          ssh-key: ${{ secrets.SSH_KEY }}
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Run revendor
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
         run: make revendor
-      - name: git update
-        if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'go_modules' }}
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/$GITHUB_REPOSITORY
-          git add vendor
-          git commit -m "run make revendor" vendor
-          git push -u origin HEAD:${{ github.event.pull_request.head.ref }}
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Run make revendor
