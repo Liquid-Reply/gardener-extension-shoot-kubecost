@@ -9,17 +9,20 @@ import (
 	_ "embed"
 	"errors"
 
+	"github.com/go-logr/logr"
+
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/constants"
+
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	gardenclient "github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/extensions"
-	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/constants"
-
 	managedresources "github.com/gardener/gardener/pkg/utils/managedresources"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -35,10 +38,12 @@ type actuator struct {
 	logger          logr.Logger   // logger
 	client          client.Client // seed cluster
 	clientGardenlet client.Client // garden cluster
+	decoder         runtime.Decoder
 }
 
 // Reconcile the Extension resource.
 func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
+	a.logger.Info("got resource to reconcile", "extension", *ex)
 	// get the shoot and the project namespace
 	extensionNamespace := ex.GetNamespace()
 	shoot, err := extensions.GetShoot(ctx, a.client, extensionNamespace)
@@ -115,5 +120,10 @@ func (a *actuator) InjectClient(client client.Client) error {
 	}
 	clientInterface.Start(context.Background())
 	a.clientGardenlet = clientInterface.Client()
+	return nil
+}
+
+func (a *actuator) InjectScheme(scheme *runtime.Scheme) error {
+	a.decoder = serializer.NewCodecFactory(scheme, serializer.EnableStrict).UniversalDecoder()
 	return nil
 }

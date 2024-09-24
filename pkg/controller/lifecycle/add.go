@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/constants"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -29,10 +30,10 @@ func AddToManager(ctx context.Context, mgr manager.Manager) error {
 	return extension.Add(ctx, mgr, extension.AddArgs{
 		Actuator:          NewActuator(),
 		ControllerOptions: DefaultAddOptions.ControllerOptions,
-		Name:              "shoot-kubecost_lifecycle_controller",
-		FinalizerSuffix:   "shoot-kubecost",
+		Name:              "shoot_kubecost_lifecycle_controller",
+		FinalizerSuffix:   constants.ExtensionType,
 		Resync:            60 * time.Minute,
 		Predicates:        extension.DefaultPredicates(ctx, mgr, DefaultAddOptions.IgnoreOperationAnnotation),
-		Type:              "shoot-kubecost",
+		Type:              constants.ExtensionType,
 	})
 }

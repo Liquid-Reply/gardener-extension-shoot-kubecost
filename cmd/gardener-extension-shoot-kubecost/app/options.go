@@ -7,8 +7,8 @@ package app
 import (
 	"os"
 
-	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 	controllercmd "github.com/gardener/gardener/extensions/pkg/controller/cmd"
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 )
 
 // ExtensionName is the name of the extension.
@@ -52,7 +52,7 @@ func NewOptions() *Options {
 		},
 		reconcileOptions: &controllercmd.ReconcilerOptions{},
 		controllerSwitches: controllercmd.NewSwitchOptions(
-			controllercmd.Switch("shoot-kubecost_lifecycle_controller", lifecycle.AddToManager)),
+			controllercmd.Switch("shoot_kubecost_lifecycle_controller", lifecycle.AddToManager)),
 	}
 
 	options.optionAggregator = controllercmd.NewOptionAggregator(
