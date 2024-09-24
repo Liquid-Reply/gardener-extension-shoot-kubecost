@@ -58,6 +58,7 @@ func (o *Options) run(ctx context.Context) error {
 	// do not enable a metrics server for the quick start
 	mgrOpts.Metrics.BindAddress = "0"
 
+	mgrOpts.Client.Cache = &client.CacheOptions{}
 	mgrOpts.Client.Cache.DisableFor = []client.Object{
 		&corev1.Secret{}, // applied for ManagedResources
 	}
