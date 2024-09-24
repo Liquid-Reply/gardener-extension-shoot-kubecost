@@ -11,6 +11,7 @@ import (
 
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
+	gardenclient "github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/extensions"
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/constants"
 
@@ -104,4 +105,15 @@ func getKubeCostApiKey(secretData map[string][]byte) (string, error) {
 
 func createShootResourceKubeCostInstall(apiKey string) (map[string][]byte, error) {
 	return nil, nil
+}
+
+func (a *actuator) InjectClient(client client.Client) error {
+	a.client = client
+	clientInterface, err := gardenclient.NewClientFromSecret(context.Background(), a.client, "garden", "gardenlet-kubeconfig")
+	if err != nil {
+		return err
+	}
+	clientInterface.Start(context.Background())
+	a.clientGardenlet = clientInterface.Client()
+	return nil
 }
