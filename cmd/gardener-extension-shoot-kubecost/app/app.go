@@ -10,6 +10,7 @@ import (
 
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/util"
+	"github.com/gardener/gardener/pkg/logger"
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ import (
 	componentbaseconfig "k8s.io/component-base/config"
 	"k8s.io/component-base/version/verflag"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -47,6 +49,13 @@ func NewServiceControllerCommand() *cobra.Command {
 }
 
 func (o *Options) run(ctx context.Context) error {
+
+	log, err := logger.NewZapLogger(logger.InfoLevel, logger.FormatJSON)
+	if err != nil {
+		return fmt.Errorf("error instantiating zap logger: %w", err)
+	}
+	logf.SetLogger(log)
+
 	// TODO: Make these flags configurable via command line parameters or component config file.
 	util.ApplyClientConnectionConfigurationToRESTConfig(&componentbaseconfig.ClientConnectionConfiguration{
 		QPS:   100.0,
@@ -58,9 +67,10 @@ func (o *Options) run(ctx context.Context) error {
 	// do not enable a metrics server for the quick start
 	mgrOpts.Metrics.BindAddress = "0"
 
-	mgrOpts.Client.Cache = &client.CacheOptions{}
-	mgrOpts.Client.Cache.DisableFor = []client.Object{
-		&corev1.Secret{}, // applied for ManagedResources
+	mgrOpts.Client.Cache = &client.CacheOptions{
+		DisableFor: []client.Object{
+			&corev1.Secret{}, // applied for ManagedResources
+		},
 	}
 
 	mgr, err := manager.New(o.restOptions.Completed().Config, mgrOpts)

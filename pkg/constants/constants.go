@@ -2,7 +2,7 @@ package constants
 
 const (
 	// ExtensionType is the name of the extension type.
-	ExtensionType = "shoot-flux"
+	ExtensionType = "shoot-kubecost"
 	// ServiceName is the name of the service.
 	ServiceName = ExtensionType
 

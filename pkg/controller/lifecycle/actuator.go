@@ -21,16 +21,23 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // NewActuator returns an actuator responsible for Extension resources.
-func NewActuator() extension.Actuator {
+func NewActuator(client client.Client) extension.Actuator {
+	clientGardenlet := client
+	clientInterface, err := gardenclient.NewClientFromSecret(context.Background(), client, "garden", "gardenlet-kubeconfig")
+	if err == nil {
+		clientInterface.Start(context.Background())
+		clientGardenlet = clientInterface.Client()
+	}
 	return &actuator{
-		logger: log.Log.WithName("FirstLogger"),
+		client:          client,
+		clientGardenlet: clientGardenlet,
+		logger:          log.Log.WithName("FirstLogger"),
 	}
 }
 
@@ -43,7 +50,6 @@ type actuator struct {
 
 // Reconcile the Extension resource.
 func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
-	a.logger.Info("got resource to reconcile", "extension", *ex)
 	// get the shoot and the project namespace
 	extensionNamespace := ex.GetNamespace()
 	shoot, err := extensions.GetShoot(ctx, a.client, extensionNamespace)
@@ -51,6 +57,7 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		return err
 	}
 	projectNamespace := shoot.GetNamespace()
+	a.logger.Info("reconciling", "extension ns", extensionNamespace, "project ns", projectNamespace)
 
 	// fetch the secret holding the per-project configuration for the shoot-kubecost installation
 	kubeCostSecret := corev1.Secret{}
@@ -110,20 +117,4 @@ func getKubeCostApiKey(secretData map[string][]byte) (string, error) {
 
 func createShootResourceKubeCostInstall(apiKey string) (map[string][]byte, error) {
 	return nil, nil
-}
-
-func (a *actuator) InjectClient(client client.Client) error {
-	a.client = client
-	clientInterface, err := gardenclient.NewClientFromSecret(context.Background(), a.client, "garden", "gardenlet-kubeconfig")
-	if err != nil {
-		return err
-	}
-	clientInterface.Start(context.Background())
-	a.clientGardenlet = clientInterface.Client()
-	return nil
-}
-
-func (a *actuator) InjectScheme(scheme *runtime.Scheme) error {
-	a.decoder = serializer.NewCodecFactory(scheme, serializer.EnableStrict).UniversalDecoder()
-	return nil
 }

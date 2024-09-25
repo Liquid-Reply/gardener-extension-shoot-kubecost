@@ -28,12 +28,11 @@ type AddOptions struct {
 // AddToManager adds a shoot-kubecost Lifecycle controller to the given Controller Manager.
 func AddToManager(ctx context.Context, mgr manager.Manager) error {
 	return extension.Add(ctx, mgr, extension.AddArgs{
-		Actuator:          NewActuator(),
+		Actuator:          NewActuator(mgr.GetClient()),
 		ControllerOptions: DefaultAddOptions.ControllerOptions,
 		Name:              "shoot_kubecost_lifecycle_controller",
 		FinalizerSuffix:   constants.ExtensionType,
-		Resync:            60 * time.Minute,
-		Predicates:        extension.DefaultPredicates(ctx, mgr, DefaultAddOptions.IgnoreOperationAnnotation),
+		Resync:            1 * time.Minute,
 		Type:              constants.ExtensionType,
 	})
 }
