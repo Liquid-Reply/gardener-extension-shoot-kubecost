@@ -33,6 +33,7 @@ func AddToManager(ctx context.Context, mgr manager.Manager) error {
 		Name:              "shoot_kubecost_lifecycle_controller",
 		FinalizerSuffix:   constants.ExtensionType,
 		Resync:            1 * time.Minute,
+		Predicates:        extension.DefaultPredicates(ctx, mgr, DefaultAddOptions.IgnoreOperationAnnotation),
 		Type:              constants.ExtensionType,
 	})
 }
