@@ -1,0 +1,2445 @@
+---
+# Source: cost-analyzer/templates/cost-analyzer-service-account-template.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubecost-cost-analyzer
+  namespace: kubecost
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+---
+# Source: cost-analyzer/templates/prometheus-server-serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    component: "server"
+    app: prometheus
+    release: kubecost
+    heritage: Helm
+  name: kubecost-prometheus-server
+  namespace: kubecost
+---
+# Source: cost-analyzer/templates/cost-analyzer-config-map-template.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubecost-cost-analyzer
+  namespace: kubecost
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+data:
+    prometheus-alertmanager-endpoint: http://kubecost-prometheus-alertmanager.kubecost
+    prometheus-server-endpoint: http://kubecost-prometheus-server.kubecost
+    kubecost-token: not-applied
+---
+# Source: cost-analyzer/templates/cost-analyzer-frontend-config-map-template.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+  namespace: kubecost
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+data:
+  nginx.conf: |
+    gzip_static  on;
+
+    # Enable gzip encoding for content of the provided types of 50kb and higher.
+    gzip on;
+    gzip_min_length 50000;
+    gzip_proxied expired no-cache no-store private auth;
+    gzip_types
+        application/atom+xml
+        application/geo+json
+        application/javascript
+        application/x-javascript
+        application/json
+        application/ld+json
+        application/manifest+json
+        application/rdf+xml
+        application/rss+xml
+        application/vnd.ms-fontobject
+        application/wasm
+        application/x-web-app-manifest+json
+        application/xhtml+xml
+        application/xml
+        font/eot
+        font/otf
+        font/ttf
+        image/bmp
+        image/svg+xml
+        text/cache-manifest
+        text/calendar
+        text/css
+        text/javascript
+        text/markdown
+        text/plain
+        text/xml
+        text/x-component
+        text/x-cross-domain-policy;
+
+    upstream api {
+        server kubecost-cost-analyzer.kubecost:9001;
+    }
+
+    upstream model {
+        server kubecost-cost-analyzer.kubecost:9003;
+    }
+    upstream grafana {
+        server cost-analyzer-grafana.default.svc;
+    }
+    upstream forecasting {
+        server kubecost-forecasting.kubecost:5000;
+    }
+    upstream aggregator {
+        server kubecost-aggregator.kubecost:9004;
+    }
+    upstream cloudCost {
+        server kubecost-cloud-cost.kubecost:9005;
+    }
+
+    server {
+        server_name _;
+        root /var/www;
+        index index.html;
+
+        add_header Cache-Control "must-revalidate";
+        large_client_header_buffers 4 32k;
+
+        error_page 504 /custom_504.html;
+        location = /custom_504.html {
+            internal;
+        }
+        add_header Cache-Control "max-age=300";
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+        add_header ETag "2.4.0";
+        listen 9090;
+        listen [::]:9090;
+        location /api/ {
+            proxy_pass http://api/;
+            proxy_redirect off;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location /model/ {
+            proxy_connect_timeout       300;
+            proxy_send_timeout          300;
+            proxy_read_timeout          300;
+            proxy_pass http://model/;
+            proxy_redirect off;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        location ~ ^/(turndown|cluster)/ {
+
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, POST, DELETE, OPTIONS' always;
+            return 404;
+        }
+        location /grafana/ {
+            proxy_pass http://grafana/;
+            proxy_redirect off;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header Host $http_host;
+        }
+    
+    # TODO make aggregator route the default, start special-casing
+    # cost-model APIs
+
+    # Aggregator proxy
+
+        location = /model/allocation {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/allocation;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/allocation/trends {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/allocation/trends;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        
+        location = /model/allocation/view {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/allocation/view;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/allocation/summary {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/allocation/summary;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/allocation/summary/topline {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/allocation/summary/topline;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/allocation/autocomplete {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/allocation/autocomplete;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/allocation/carbon {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/allocation/carbon;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/assets {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/assets;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/assets/topline {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/assets/topline;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/assets/graph {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/assets/graph;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/assets/totals {
+            return 501 "<b>Aggregator does not support this endpoint.</b>";
+        }
+        location = /model/assets/diff {
+            return 501 "<b>Aggregator does not support this endpoint.</b>";
+        }
+        location = /model/assets/breakdown {
+            return 501 "<b>Aggregator does not support this endpoint.</b>";
+        }
+        location = /model/assets/autocomplete {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/assets/autocomplete;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/assets/carbon {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/assets/carbon;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/requestSizingV2 {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/requestSizingV2;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/requestSizingV2/topline {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/requestSizingV2/topline;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/clusterSizingETL {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/clusterSizingETL;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/nodeGroupSizingETL {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/nodeGroupSizingETL;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/recommendations/allowLists {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/recommendations/allowLists;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/cloudCost;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/view/graph {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/cloudCost/view/graph;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/view/totals {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/cloudCost/view/totals;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/view/table {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/cloudCost/view/table;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/view/trends {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/cloudCost/view/trends;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/autocomplete {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/cloudCost/autocomplete;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/clusters/status {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/clusters/status;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/abandonedWorkloads {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/abandonedWorkloads;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/abandonedWorkloads/topline {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/abandonedWorkloads/topline;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/unclaimedVolumes {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/unclaimedVolumes;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/localLowDisks {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/localLowDisks;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/persistentVolumeSizing {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/persistentVolumeSizing;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/savings/persistentVolumeSizing/topline {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/savings/persistentVolumeSizing/topline;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/reports/allocation {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/reports/allocation;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/reports/asset {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/reports/asset;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/reports/cloudCost {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/reports/cloudCost;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/reports/group {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/reports/group;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        # this is a special case to handle /reports/group/:group in the Kubecost Aggregator. prior to aggregator, this endpoint
+        # was handled by /model/, so no special case proxies were required. without this, /model/reports/groups/?foo=bar
+        # will be directed to /reports/groups?foo=bar (note the missing /model prefix)
+        location ~ ^/model/reports/group/ {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/reports/group/$is_args$args;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/budget {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/budget;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/budgets {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/budgets;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collections {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collections;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection/query/total {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection/query/total;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection/query/timeseries {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection/query/timeseries;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection/query/complement {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection/query/complement;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection/query/complement/cloud {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection/query/complement/cloud;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection/query/complement/kubernetes {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection/query/complement/kubernetes;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        location = /model/collections/query/total {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collections/query/total;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collections/query/timeseries {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collections/query/timeseries;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collections/query/complement {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collections/query/complement;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collections/query/complement/cloud {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collections/query/complement/cloud;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collections/query/complement/kubernetes {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collections/query/complement/kubernetes;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection/cache/status {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection/cache/status;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/collection/configs {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/collection/configs;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/kubernetes/containers/resources {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/kubernetes/containers/resources;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/kubernetes/containers/resources/timeseries {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/kubernetes/containers/resources/timeseries;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/kubernetes/containers/costs {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/kubernetes/containers/costs;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/kubernetes/containers/costs/timeseries {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/kubernetes/containers/costs/timeseries;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/networkinsights {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/networkinsights;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/networkinsights/graph {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/networkinsights/graph;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/rbacGroups {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/rbacGroups;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/smtp {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/smtp;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/smtp/test {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/smtp/test;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/teams {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/teams;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/team {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/team;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/users {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/users;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/user {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/user;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/serviceAccounts {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/serviceAccounts;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/serviceAccount {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/serviceAccount;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/debug/orchestrator {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/debug/orchestrator;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/prediction/speccost {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/prediction/speccost;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/coreCount {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/coreCount;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/tableWindowCount {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/tableWindowCount;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/containersPerDay {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/containersPerDay;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/nodesPerDay {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/nodesPerDay;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/containerLabelStats {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/containerLabelStats;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/containerAnnotationStats {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/containerAnnotationStats;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/cloudCostsPerDay {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/cloudCostsPerDay;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/containerWithoutMatchingNode {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/containerWithoutMatchingNode;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/containerDuplicateNoId {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/containerDuplicateNoId;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/containerDuplicateWithId {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/containerDuplicateWithId;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/nodeDuplicateNoId {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/nodeDuplicateNoId;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/debug/ingestionRecords {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/debug/ingestionRecords;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/debug/ingestionSummary {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/debug/ingestionSummary;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/debug/derivationRecords {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/debug/derivationRecords;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/diagnostic/databaseDirectory {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/databaseDirectory;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/getApiConfig {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/getApiConfig;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/setApiConfig {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/setApiConfig;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+         location = /model/getIngestionConfig {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/getIngestionConfig;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/setIngestionConfig {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/setIngestionConfig;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/enablements {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/enablements;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/customCost/total {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/customCost/total;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/customCost/timeseries {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/customCost/timeseries;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/providerOptimization {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/providerOptimization;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        location = /model/getProductKey {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/getProductKey;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/setProductKey {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/setProductKey;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/trialStatus {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/trialStatus;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/startProductTrial {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/startProductTrial;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/resetProductTrial {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/resetProductTrial;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/extendProductTrial {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/extendProductTrial;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/expireProductTrial {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/expireProductTrial;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        #Cloud Cost Endpoints
+        location = /model/cloudCost/status {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloudCost/status;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/rebuild {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloudCost/rebuild;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/repair {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloudCost/repair;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloud/config {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloud/config;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloud/config/export {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloud/config/export;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloud/config/enable {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloud/config/enable;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloud/config/disable {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloud/config/disable;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/cloudCost/integration/validate {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/cloudCost/integration/validate;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/customCost/status {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/customCost/status;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/customCost/rebuild {
+            proxy_read_timeout          300;
+            proxy_pass http://cloudCost/customCost/rebuild;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        # alert end points with v2 will be routed to aggregator server
+        location = /model/v2/alerts {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/alerts;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location ~* ^/model/v2/alerts/(.*) {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/alerts/$1;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        # alert end points without any version will be routed to model server
+        location = /model/alerts {
+            proxy_read_timeout          300;
+            proxy_pass http://model/alerts;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location ~* ^/model/alerts/(.*) {
+            proxy_read_timeout          300;
+            proxy_pass http://model/alerts/$1;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location ~* ^/model/reports/(.*)/schedule/test {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/reports/$1/schedule/test;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+        location = /model/hideOrphanedResources {
+            default_type 'application/json';
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, POST, DELETE, OPTIONS' always;
+            return 200 '{"hideOrphanedResources": "false"}';
+        }
+        location = /model/hideDiagnostics {
+            default_type 'application/json';
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, POST, DELETE, OPTIONS' always;
+            return 200 '{"hideDiagnostics": "false"}';
+        }
+
+        location /model/multi-cluster-diagnostics-enabled {
+            default_type 'application/json';
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, POST, DELETE, OPTIONS' always;
+            return 200 '{"multiClusterDiagnosticsEnabled": false}';
+        }
+
+        location /model/aggregatorEnabled {
+            default_type 'application/json';
+            return 200 '{"aggregatorEnabled": "true"}';
+        }
+        location /forecasting {
+            default_type 'application/json';
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, POST, DELETE, OPTIONS' always;
+            proxy_read_timeout          300;
+            proxy_pass http://forecasting/;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        location /model/productConfigs {
+            default_type 'application/json';
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, POST, DELETE, OPTIONS' always;
+            return 200 '\n
+                {
+                "ssoConfigured": "false",
+                "rbacTeamsEnabled": "false",
+                "dataBackupConfigured": "false",
+                "costEventsAuditEnabled": "false",
+                "frontendDeployMethod": "singlepod",
+                "pluginsEnabled": "false",
+                "carbonEstimatesEnabled": "false",
+                "clusterControllerEnabled": "false",
+                "forecastingEnabled": "true",
+                "chartVersion": "2.4.0",
+                "hourlyDataRetention": "49",
+                "dailyDataRetention": "91",
+                "hideDiagnostics": "false",
+                "hideOrphanedResources": "false",
+                "hideKubecostActions": "false",
+                "hideReservedInstances": "false",
+                "hideSpotCommander": "false",
+                "hideUnclaimedVolumes": "false",
+                "hideCloudIntegrationsUI": "false",
+                "hideBellIcon": "false",
+                "hideTeams": "false"
+                }
+            ';
+        }
+    }
+---
+# Source: cost-analyzer/templates/cost-analyzer-network-costs-config-map-template.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: network-costs-config
+  namespace: kubecost
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+data:
+  config.yaml: |
+    destinations:
+      cross-region: []
+      direct-classification: []
+      in-region: []
+      in-zone:
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      internet: []
+    services:
+      amazon-web-services: true
+      azure-cloud-services: true
+      google-cloud-services: true
+---
+# Source: cost-analyzer/templates/cost-analyzer-smtp-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smtp-configs
+  namespace: kubecost
+  labels:
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+---
+# Source: cost-analyzer/templates/prometheus-server-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    component: "server"
+    app: prometheus
+    release: kubecost
+    heritage: Helm
+  name: kubecost-prometheus-server
+  namespace: kubecost
+data:
+  alerting_rules.yml: |
+    {}
+  alerts: |
+    {}
+  prometheus.yml: |
+    global:
+      evaluation_interval: 1m
+      external_labels:
+        cluster_id: cluster-one
+      scrape_interval: 1m
+      scrape_timeout: 60s
+    rule_files:
+    - /etc/config/recording_rules.yml
+    - /etc/config/alerting_rules.yml
+    - /etc/config/rules
+    - /etc/config/alerts
+    scrape_configs:
+    - job_name: prometheus
+      static_configs:
+      - targets:
+        - localhost:9090
+    - bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      job_name: kubernetes-nodes-cadvisor
+      kubernetes_sd_configs:
+      - role: node
+      metric_relabel_configs:
+      - action: keep
+        regex: (container_cpu_usage_seconds_total|container_memory_working_set_bytes|container_network_receive_errors_total|container_network_transmit_errors_total|container_network_receive_packets_dropped_total|container_network_transmit_packets_dropped_total|container_memory_usage_bytes|container_cpu_cfs_throttled_periods_total|container_cpu_cfs_periods_total|container_fs_usage_bytes|container_fs_limit_bytes|container_cpu_cfs_periods_total|container_fs_inodes_free|container_fs_inodes_total|container_fs_usage_bytes|container_fs_limit_bytes|container_cpu_cfs_throttled_periods_total|container_cpu_cfs_periods_total|container_network_receive_bytes_total|container_network_transmit_bytes_total|container_fs_inodes_free|container_fs_inodes_total|container_fs_usage_bytes|container_fs_limit_bytes|container_spec_cpu_shares|container_spec_memory_limit_bytes|container_network_receive_bytes_total|container_network_transmit_bytes_total|container_fs_reads_bytes_total|container_network_receive_bytes_total|container_fs_writes_bytes_total|container_fs_reads_bytes_total|cadvisor_version_info|kubecost_pv_info)
+        source_labels:
+        - __name__
+      - action: replace
+        regex: (.+)
+        source_labels:
+        - container
+        target_label: container_name
+      - action: replace
+        regex: (.+)
+        source_labels:
+        - pod
+        target_label: pod_name
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - replacement: kubernetes.default.svc:443
+        target_label: __address__
+      - regex: (.+)
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+        source_labels:
+        - __meta_kubernetes_node_name
+        target_label: __metrics_path__
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+    - bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      job_name: kubernetes-nodes
+      kubernetes_sd_configs:
+      - role: node
+      metric_relabel_configs:
+      - action: keep
+        regex: (kubelet_volume_stats_used_bytes)
+        source_labels:
+        - __name__
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - replacement: kubernetes.default.svc:443
+        target_label: __address__
+      - regex: (.+)
+        replacement: /api/v1/nodes/$1/proxy/metrics
+        source_labels:
+        - __meta_kubernetes_node_name
+        target_label: __metrics_path__
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+    - job_name: kubernetes-service-endpoints
+      kubernetes_sd_configs:
+      - role: endpoints
+      metric_relabel_configs:
+      - action: keep
+        regex: (container_cpu_allocation|container_cpu_usage_seconds_total|container_fs_limit_bytes|container_fs_writes_bytes_total|container_gpu_allocation|container_memory_allocation_bytes|container_memory_usage_bytes|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_transmit_bytes_total|DCGM_FI_DEV_GPU_UTIL|deployment_match_labels|kube_daemonset_status_desired_number_scheduled|kube_daemonset_status_number_ready|kube_deployment_spec_replicas|kube_deployment_status_replicas|kube_deployment_status_replicas_available|kube_job_status_failed|kube_namespace_annotations|kube_namespace_labels|kube_node_info|kube_node_labels|kube_node_status_allocatable|kube_node_status_allocatable_cpu_cores|kube_node_status_allocatable_memory_bytes|kube_node_status_capacity|kube_node_status_capacity_cpu_cores|kube_node_status_capacity_memory_bytes|kube_node_status_condition|kube_persistentvolume_capacity_bytes|kube_persistentvolume_status_phase|kube_persistentvolumeclaim_info|kube_persistentvolumeclaim_resource_requests_storage_bytes|kube_pod_container_info|kube_pod_container_resource_limits|kube_pod_container_resource_limits_cpu_cores|kube_pod_container_resource_limits_memory_bytes|kube_pod_container_resource_requests|kube_pod_container_resource_requests_cpu_cores|kube_pod_container_resource_requests_memory_bytes|kube_pod_container_status_restarts_total|kube_pod_container_status_running|kube_pod_container_status_terminated_reason|kube_pod_labels|kube_pod_owner|kube_pod_status_phase|kube_replicaset_owner|kube_statefulset_replicas|kube_statefulset_status_replicas|kubecost_cluster_info|kubecost_cluster_management_cost|kubecost_cluster_memory_working_set_bytes|kubecost_load_balancer_cost|kubecost_network_internet_egress_cost|kubecost_network_region_egress_cost|kubecost_network_zone_egress_cost|kubecost_node_is_spot|kubecost_pod_network_egress_bytes_total|node_cpu_hourly_cost|node_cpu_seconds_total|node_disk_reads_completed|node_disk_reads_completed_total|node_disk_writes_completed|node_disk_writes_completed_total|node_filesystem_device_error|node_gpu_count|node_gpu_hourly_cost|node_memory_Buffers_bytes|node_memory_Cached_bytes|node_memory_MemAvailable_bytes|node_memory_MemFree_bytes|node_memory_MemTotal_bytes|node_network_transmit_bytes_total|node_ram_hourly_cost|node_total_hourly_cost|pod_pvc_allocation|pv_hourly_cost|service_selector_labels|statefulSet_match_labels|kubecost_pv_info|up)
+        source_labels:
+        - __name__
+      relabel_configs:
+      - action: keep
+        regex: true
+        source_labels:
+        - __meta_kubernetes_service_annotation_prometheus_io_scrape
+      - action: keep
+        regex: (.*node-exporter|kubecost-network-costs)
+        source_labels:
+        - __meta_kubernetes_endpoints_name
+      - action: replace
+        regex: (https?)
+        source_labels:
+        - __meta_kubernetes_service_annotation_prometheus_io_scheme
+        target_label: __scheme__
+      - action: replace
+        regex: (.+)
+        source_labels:
+        - __meta_kubernetes_service_annotation_prometheus_io_path
+        target_label: __metrics_path__
+      - action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        source_labels:
+        - __address__
+        - __meta_kubernetes_service_annotation_prometheus_io_port
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_namespace
+        target_label: kubernetes_namespace
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_service_name
+        target_label: kubernetes_name
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_pod_node_name
+        target_label: kubernetes_node
+    - job_name: kubecost
+      honor_labels: true
+      scrape_interval: 1m
+      scrape_timeout: 60s
+      metrics_path: /metrics
+      scheme: http
+      dns_sd_configs:
+      - names:
+        - kubecost-cost-analyzer
+        type: 'A'
+        port: 9003
+    - job_name: kubecost-networking
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+      # Scrape only the the targets matching the following metadata
+        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+          action: keep
+          regex:  kubecost
+        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+          action: keep
+          regex:  network-costs
+    - job_name: kubecost-aggregator
+      scrape_interval: 1m
+      scrape_timeout: 60s
+      metrics_path: /metrics
+      scheme: http
+      dns_sd_configs:
+      - names:
+        - kubecost-aggregator
+        type: 'A'
+        port: 9004
+    ## Enables scraping of NVIDIA GPU metrics via dcgm-exporter. Scrapes all
+    ## endpoints which contain "dcgm-exporter" in labels "app",
+    ## "app.kubernetes.io/component", or "app.kubernetes.io/name" with a case
+    ## insensitive match.
+    ## Refs:
+    ## https://github.com/NVIDIA/gpu-operator/blob/d4316a415bbd684ce8416a88042305fc1a093aa4/assets/state-dcgm-exporter/0600_service.yaml#L7
+    ## https://github.com/NVIDIA/dcgm-exporter/blob/54fd1ca137c66511a87a720390613680b9bdabdd/deployment/templates/service.yaml#L23
+    - job_name: kubecost-dcgm-exporter
+      kubernetes_sd_configs:
+        - role: endpoints
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app, __meta_kubernetes_pod_label_app_kubernetes_io_component, __meta_kubernetes_pod_label_app_kubernetes_io_name]
+          action: keep
+          regex: (?i)(.*dcgm-exporter.*|.*dcgm-exporter.*|.*dcgm-exporter.*)
+    
+  recording_rules.yml: |
+    {}
+  rules: |
+    groups:
+    - name: CPU
+      rules:
+      - expr: sum(rate(container_cpu_usage_seconds_total{container!=""}[5m]))
+        record: cluster:cpu_usage:rate5m
+      - expr: rate(container_cpu_usage_seconds_total{container!=""}[5m])
+        record: cluster:cpu_usage_nosum:rate5m
+      - expr: avg(irate(container_cpu_usage_seconds_total{container!="POD", container!=""}[5m]))
+          by (container,pod,namespace)
+        record: kubecost_container_cpu_usage_irate
+      - expr: sum(container_memory_working_set_bytes{container!="POD",container!=""})
+          by (container,pod,namespace)
+        record: kubecost_container_memory_working_set_bytes
+      - expr: sum(container_memory_working_set_bytes{container!="POD",container!=""})
+        record: kubecost_cluster_memory_working_set_bytes
+    - name: Savings
+      rules:
+      - expr: sum(avg(kube_pod_owner{owner_kind!="DaemonSet"}) by (pod) * sum(container_cpu_allocation)
+          by (pod))
+        labels:
+          daemonset: "false"
+        record: kubecost_savings_cpu_allocation
+      - expr: sum(avg(kube_pod_owner{owner_kind="DaemonSet"}) by (pod) * sum(container_cpu_allocation)
+          by (pod)) / sum(kube_node_info)
+        labels:
+          daemonset: "true"
+        record: kubecost_savings_cpu_allocation
+      - expr: sum(avg(kube_pod_owner{owner_kind!="DaemonSet"}) by (pod) * sum(container_memory_allocation_bytes)
+          by (pod))
+        labels:
+          daemonset: "false"
+        record: kubecost_savings_memory_allocation_bytes
+      - expr: sum(avg(kube_pod_owner{owner_kind="DaemonSet"}) by (pod) * sum(container_memory_allocation_bytes)
+          by (pod)) / sum(kube_node_info)
+        labels:
+          daemonset: "true"
+        record: kubecost_savings_memory_allocation_bytes
+---
+# Source: cost-analyzer/templates/cost-analyzer-pvc-template.yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: kubecost-cost-analyzer
+  namespace: kubecost
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 32Gi
+---
+# Source: cost-analyzer/templates/prometheus-server-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    component: "server"
+    app: prometheus
+    release: kubecost
+    heritage: Helm
+  name: kubecost-prometheus-server
+  namespace: kubecost
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: "32Gi"
+---
+# Source: cost-analyzer/templates/cost-analyzer-cluster-role-template.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubecost-cost-analyzer
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - configmaps
+      - nodes
+      - pods
+      - events
+      - services
+      - resourcequotas
+      - replicationcontrollers
+      - limitranges
+      - persistentvolumeclaims
+      - persistentvolumes
+      - namespaces
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - deployments
+      - daemonsets
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups: 
+      - storage.k8s.io
+    resources: 
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: cost-analyzer/templates/prometheus-server-clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    component: "server"
+    app: prometheus
+    release: kubecost
+    heritage: Helm
+  name: kubecost-prometheus-server
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - nodes/proxy
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+      - ingresses
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses/status
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - nonResourceURLs:
+      - "/metrics"
+    verbs:
+      - get
+---
+# Source: cost-analyzer/templates/cost-analyzer-cluster-role-binding-template.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubecost-cost-analyzer
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubecost-cost-analyzer
+subjects:
+  - kind: ServiceAccount
+    name: kubecost-cost-analyzer
+    namespace: kubecost
+---
+# Source: cost-analyzer/templates/prometheus-server-clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    component: "server"
+    app: prometheus
+    release: kubecost
+    heritage: Helm
+  name: kubecost-prometheus-server
+subjects:
+  - kind: ServiceAccount
+    name: kubecost-prometheus-server
+    namespace: kubecost
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubecost-prometheus-server
+---
+# Source: cost-analyzer/templates/cost-analyzer-cluster-role-template.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: kubecost
+  name: kubecost-cost-analyzer
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+rules:
+- apiGroups: 
+    - ''
+  resources:
+    - "pods/log"
+  verbs:
+    - get
+    - list
+    - watch
+- apiGroups:
+    - ''
+  resources:
+    - configmaps
+  verbs:
+    - get
+    - list
+    - watch
+    - update
+---
+# Source: cost-analyzer/templates/cost-analyzer-cluster-role-binding-template.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubecost-cost-analyzer
+  namespace: kubecost
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubecost-cost-analyzer
+subjects:
+  - kind: ServiceAccount
+    name: kubecost-cost-analyzer
+    namespace: kubecost
+---
+# Source: cost-analyzer/templates/aggregator-cloud-cost-service.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: kubecost-cloud-cost
+  namespace: kubecost
+  labels:
+
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: cost-analyzer
+    app.kubernetes.io/instance: kubecost
+    app: cost-analyzer
+spec:
+  selector:
+
+    app.kubernetes.io/name: cost-analyzer
+    app.kubernetes.io/instance: kubecost
+    app: cost-analyzer
+  type: "ClusterIP"
+  ports:
+    - name: tcp-api
+      port: 9005
+      targetPort: 9005
+---
+# Source: cost-analyzer/templates/aggregator-service.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: kubecost-aggregator
+  namespace: kubecost
+  labels:
+
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/managed-by: Helm
+    app: aggregator
+spec:
+  selector:
+
+    app.kubernetes.io/name: cost-analyzer
+    app.kubernetes.io/instance: kubecost
+    app: cost-analyzer
+  type: "ClusterIP"
+  ports:
+    - name: tcp-api
+      port: 9004
+      targetPort: 9004
+---
+# Source: cost-analyzer/templates/cost-analyzer-network-costs-service-template.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubecost-network-costs
+  namespace: kubecost
+  labels:
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/name: network-costs
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/managed-by: Helm
+    app: kubecost-network-costs
+spec:
+  clusterIP: None
+  ports:
+  - name: metrics
+    port: 3001
+    protocol: TCP
+    targetPort: 3001
+  selector:
+    app: kubecost-network-costs
+  type: ClusterIP
+---
+# Source: cost-analyzer/templates/cost-analyzer-service-template.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: kubecost-cost-analyzer
+  namespace: kubecost
+  labels:
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+spec:
+  selector:
+    app.kubernetes.io/name: cost-analyzer
+    app.kubernetes.io/instance: kubecost
+    app: cost-analyzer
+  type: "ClusterIP"
+  ports:
+    - name: tcp-model
+      port: 9003
+      targetPort: 9003
+    - name: tcp-frontend
+      port: 9090
+      targetPort: 9090
+  sessionAffinity: None
+---
+# Source: cost-analyzer/templates/forecasting-service.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: kubecost-forecasting
+  namespace: kubecost
+  labels:
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: forecasting
+    app.kubernetes.io/instance: kubecost
+    app: forecasting
+spec:
+  selector:
+    app.kubernetes.io/name: forecasting
+    app.kubernetes.io/instance: kubecost
+    app: forecasting
+  type: ClusterIP
+  ports:
+    - name: tcp-api
+      port: 5000
+      targetPort: 5000
+---
+# Source: cost-analyzer/templates/prometheus-server-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    component: "server"
+    app: prometheus
+    release: kubecost
+    heritage: Helm
+  name: kubecost-prometheus-server
+  namespace: kubecost
+spec:
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 9090
+  selector:
+    component: "server"
+    app: prometheus
+    release: kubecost
+  sessionAffinity: None
+  type: "ClusterIP"
+---
+# Source: cost-analyzer/templates/cost-analyzer-network-costs-template.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kubecost-network-costs
+  namespace: kubecost
+  labels:
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/name: network-costs
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/managed-by: Helm
+    app: kubecost-network-costs
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: kubecost-network-costs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: kubecost
+        app.kubernetes.io/name: network-costs
+        helm.sh/chart: cost-analyzer-2.4.0
+        app.kubernetes.io/managed-by: Helm
+        app: kubecost-network-costs
+    spec:
+      hostNetwork: true
+      serviceAccountName: kubecost-cost-analyzer
+      containers:
+      - name: kubecost-network-costs
+        image: gcr.io/kubecost1/kubecost-network-costs:v0.17.6
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 500m
+          requests:
+            cpu: 50m
+            memory: 20Mi
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: HOST_PORT
+          value: "3001"
+        - name: TRAFFIC_LOGGING_ENABLED
+          value: "true"
+        - name: LOG_LEVEL
+          value: info
+        volumeMounts:
+        - mountPath: /net
+          name: nf-conntrack
+        - mountPath: /netfilter
+          name: netfilter
+        - mountPath: /network-costs/config
+          name: network-costs-config
+        securityContext:
+          privileged: true
+        ports:
+        - name: http-server
+          containerPort: 3001
+          hostPort: 3001
+      volumes:
+      - name: network-costs-config
+        configMap:
+          name: network-costs-config
+      - name: nf-conntrack
+        hostPath:
+          path: /proc/net
+      - name: netfilter
+        hostPath:
+          path: /proc/sys/net/netfilter
+---
+# Source: cost-analyzer/templates/cost-analyzer-deployment-template.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubecost-cost-analyzer
+  namespace: kubecost
+  labels:
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+        app.kubernetes.io/name: cost-analyzer
+        app.kubernetes.io/instance: kubecost
+        app: cost-analyzer
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cost-analyzer
+        app.kubernetes.io/instance: kubecost
+        app: cost-analyzer
+      annotations:
+        checksum/configs: b694428a756844bae536701738dd50c8c3ee1882d136419dcd414dce9257255e
+    spec:
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      restartPolicy: Always
+      serviceAccountName: kubecost-cost-analyzer
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-conf
+          configMap:
+            name: nginx-conf
+            items:
+              - key: nginx.conf
+                path: default.conf
+        - name: persistent-configs
+          persistentVolumeClaim:
+            claimName: kubecost-cost-analyzer
+      initContainers:
+      containers:
+        - image: gcr.io/kubecost1/cost-model:prod-2.4.0
+          name: cost-model
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          imagePullPolicy: IfNotPresent
+          ports:
+          - name: tcp-model
+            containerPort: 9003
+            protocol: TCP
+          - name: tcp-frontend
+            containerPort: 9090
+            protocol: TCP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 55Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9003
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 200
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9003
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 200
+          volumeMounts:
+            - name: persistent-configs
+              mountPath: /var/configs
+          env:
+            - name: GRAFANA_ENABLED
+              value: "false"
+            - name: HELM_VALUES
+              value: eyJhZmZpbml0eSI6e30sImF3c3N0b3JlIjp7ImFubm90YXRpb25zIjp7fSwiY3JlYXRlU2VydmljZUFjY291bnQiOmZhbHNlLCJpbWFnZU5hbWVBbmRWZXJzaW9uIjoiZ2NyLmlvL2t1YmVjb3N0MS9hd3NzdG9yZTpsYXRlc3QiLCJub2RlU2VsZWN0b3IiOnt9LCJwcmlvcml0eUNsYXNzTmFtZSI6IiIsInVzZUF3c1N0b3JlIjpmYWxzZX0sImRpYWdub3N0aWNzIjp7ImNvbGxlY3RIZWxtVmFsdWVzIjpmYWxzZSwiZW5hYmxlZCI6dHJ1ZSwia2VlcERpYWdub3N0aWNIaXN0b3J5IjpmYWxzZSwicG9sbGluZ0ludGVydmFsIjoiMzAwcyJ9LCJleHRyYU9iamVjdHMiOltdLCJleHRyYVZvbHVtZU1vdW50cyI6W10sImV4dHJhVm9sdW1lcyI6W10sImZlZGVyYXRlZEVUTCI6eyJhZ2VudE9ubHkiOmZhbHNlLCJmZWRlcmF0ZWRDbHVzdGVyIjpmYWxzZSwicmVhZE9ubHlQcmltYXJ5IjpmYWxzZSwicmVkaXJlY3RTM0JhY2t1cCI6ZmFsc2UsInVzZU11bHRpQ2x1c3RlckRCIjpmYWxzZX0sImZvcmVjYXN0aW5nIjp7ImFmZmluaXR5Ijp7fSwiZW5hYmxlZCI6dHJ1ZSwiZW52Ijp7IkdVTklDT1JOX0NNRF9BUkdTIjoiLS1sb2ctbGV2ZWwgaW5mbyAtdCAxMjAwIn0sImZ1bGxJbWFnZU5hbWUiOiJnY3IuaW8va3ViZWNvc3QxL2t1YmVjb3N0LW1vZGVsaW5nOnYwLjEuMTYiLCJpbWFnZVB1bGxQb2xpY3kiOiJJZk5vdFByZXNlbnQiLCJsaXZlbmVzc1Byb2JlIjp7ImVuYWJsZWQiOnRydWUsImZhaWx1cmVUaHJlc2hvbGQiOjIwMCwiaW5pdGlhbERlbGF5U2Vjb25kcyI6MTAsInBlcmlvZFNlY29uZHMiOjEwfSwibm9kZVNlbGVjdG9yIjp7fSwicmVhZGluZXNzUHJvYmUiOnsiZW5hYmxlZCI6dHJ1ZSwiZmFpbHVyZVRocmVzaG9sZCI6MjAwLCJpbml0aWFsRGVsYXlTZWNvbmRzIjoxMCwicGVyaW9kU2Vjb25kcyI6MTB9LCJyZXNvdXJjZXMiOnsibGltaXRzIjp7ImNwdSI6IjE1MDBtIiwibWVtb3J5IjoiMUdpIn0sInJlcXVlc3RzIjp7ImNwdSI6IjIwMG0iLCJtZW1vcnkiOiIzMDBNaSJ9fSwidG9sZXJhdGlvbnMiOltdfSwiZ2xvYmFsIjp7ImFkZGl0aW9uYWxMYWJlbHMiOnt9LCJjb250YWluZXJTZWN1cml0eUNvbnRleHQiOnsiYWxsb3dQcml2aWxlZ2VFc2NhbGF0aW9uIjpmYWxzZSwiY2FwYWJpbGl0aWVzIjp7ImRyb3AiOlsiQUxMIl19LCJwcml2aWxlZ2VkIjpmYWxzZSwicmVhZE9ubHlSb290RmlsZXN5c3RlbSI6dHJ1ZX0sImludGVncmF0aW9ucyI6e30sIm5vdGlmaWNhdGlvbnMiOnt9LCJwbGF0Zm9ybXMiOnt9LCJwb2RBbm5vdGF0aW9ucyI6e30sInByb21ldGhldXMiOnsiZW5hYmxlZCI6dHJ1ZSwiZnFkbiI6Imh0dHA6Ly9jb3N0LWFuYWx5emVyLXByb21ldGhldXMtc2VydmVyLmRlZmF1bHQuc3ZjIn0sInNlY3VyaXR5Q29udGV4dCI6eyJmc0dyb3VwIjoxMDAxLCJmc0dyb3VwQ2hhbmdlUG9saWN5IjoiT25Sb290TWlzbWF0Y2giLCJydW5Bc0dyb3VwIjoxMDAxLCJydW5Bc05vblJvb3QiOnRydWUsInJ1bkFzVXNlciI6MTAwMSwic2VjY29tcFByb2ZpbGUiOnsidHlwZSI6IlJ1bnRpbWVEZWZhdWx0In19fSwiaW5pdENob3duRGF0YSI6eyJyZXNvdXJjZXMiOnt9fSwiaW5pdENob3duRGF0YUltYWdlIjoiYnVzeWJveCIsImt1YmVjb3N0RGVwbG95bWVudCI6eyJhbm5vdGF0aW9ucyI6e30sImxhYmVscyI6e30sInJlcGxpY2FzIjoxfSwia3ViZWNvc3RGcm9udGVuZCI6eyJkZXBsb3lNZXRob2QiOiJzaW5nbGVwb2QiLCJkZXBsb3ltZW50U3RyYXRlZ3kiOnt9LCJlbmFibGVkIjp0cnVlLCJoYVJlcGxpY2FzIjoyLCJpbWFnZSI6Imdjci5pby9rdWJlY29zdDEvZnJvbnRlbmQiLCJpbWFnZVB1bGxQb2xpY3kiOiJJZk5vdFByZXNlbnQiLCJpcHY2Ijp7ImVuYWJsZWQiOnRydWV9LCJsaXZlbmVzc1Byb2JlIjp7ImVuYWJsZWQiOnRydWUsImZhaWx1cmVUaHJlc2hvbGQiOjYsImluaXRpYWxEZWxheVNlY29uZHMiOjEsInBlcmlvZFNlY29uZHMiOjV9LCJyZWFkaW5lc3NQcm9iZSI6eyJlbmFibGVkIjp0cnVlLCJmYWlsdXJlVGhyZXNob2xkIjo2LCJpbml0aWFsRGVsYXlTZWNvbmRzIjoxLCJwZXJpb2RTZWNvbmRzIjo1fSwicmVzb3VyY2VzIjp7InJlcXVlc3RzIjp7ImNwdSI6IjEwbSIsIm1lbW9yeSI6IjU1TWkifX0sInVzZURlZmF1bHRGcWRuIjpmYWxzZX0sImt1YmVjb3N0TWV0cmljcyI6e30sImt1YmVjb3N0TW9kZWwiOnsiYWxsb2NhdGlvbiI6bnVsbCwiY29udGFpbmVyU3RhdHNFbmFibGVkIjp0cnVlLCJldGwiOnRydWUsImV0bERhaWx5U3RvcmVEdXJhdGlvbkRheXMiOjkxLCJldGxGaWxlU3RvcmVFbmFibGVkIjp0cnVlLCJldGxIb3VybHlTdG9yZUR1cmF0aW9uSG91cnMiOjQ5LCJldGxSZWFkT25seU1vZGUiOmZhbHNlLCJleHRyYUFyZ3MiOltdLCJleHRyYVBvcnRzIjpbXSwiaW1hZ2UiOiJnY3IuaW8va3ViZWNvc3QxL2Nvc3QtbW9kZWwiLCJpbWFnZVB1bGxQb2xpY3kiOiJJZk5vdFByZXNlbnQiLCJsaXZlbmVzc1Byb2JlIjp7ImVuYWJsZWQiOnRydWUsImZhaWx1cmVUaHJlc2hvbGQiOjIwMCwiaW5pdGlhbERlbGF5U2Vjb25kcyI6MTAsInBlcmlvZFNlY29uZHMiOjEwfSwibWF4UXVlcnlDb25jdXJyZW5jeSI6NSwicmVhZGluZXNzUHJvYmUiOnsiZW5hYmxlZCI6dHJ1ZSwiZmFpbHVyZVRocmVzaG9sZCI6MjAwLCJpbml0aWFsRGVsYXlTZWNvbmRzIjoxMCwicGVyaW9kU2Vjb25kcyI6MTB9LCJyZXNvdXJjZXMiOnsicmVxdWVzdHMiOnsiY3B1IjoiMjAwbSIsIm1lbW9yeSI6IjU1TWkifX0sInV0Y09mZnNldCI6IiswMDowMCIsIndhcm1DYWNoZSI6ZmFsc2V9LCJrdWJlY29zdFRva2VuIjpudWxsLCJuZXR3b3JrQ29zdHMiOnsiYWRkaXRpb25hbExhYmVscyI6e30sImFkZGl0aW9uYWxTZWN1cml0eUNvbnRleHQiOnt9LCJhZmZpbml0eSI6e30sImFubm90YXRpb25zIjp7fSwiY29uZmlnIjp7ImRlc3RpbmF0aW9ucyI6eyJjcm9zcy1yZWdpb24iOltdLCJkaXJlY3QtY2xhc3NpZmljYXRpb24iOltdLCJpbi1yZWdpb24iOltdLCJpbi16b25lIjpbIjEyNy4wLjAuMC84IiwiMTY5LjI1NC4wLjAvMTYiLCIxMC4wLjAuMC84IiwiMTcyLjE2LjAuMC8xMiIsIjE5Mi4xNjguMC4wLzE2Il0sImludGVybmV0IjpbXX0sInNlcnZpY2VzIjp7ImFtYXpvbi13ZWItc2VydmljZXMiOnRydWUsImF6dXJlLWNsb3VkLXNlcnZpY2VzIjp0cnVlLCJnb29nbGUtY2xvdWQtc2VydmljZXMiOnRydWV9fSwiZW5hYmxlZCI6dHJ1ZSwiZXh0cmFBcmdzIjpbXSwiaGVhbHRoQ2hlY2tQcm9iZXMiOnt9LCJpbWFnZSI6eyJyZXBvc2l0b3J5IjoiZ2NyLmlvL2t1YmVjb3N0MS9rdWJlY29zdC1uZXR3b3JrLWNvc3RzIiwidGFnIjoidjAuMTcuNiJ9LCJpbWFnZVB1bGxQb2xpY3kiOiJJZk5vdFByZXNlbnQiLCJsb2dMZXZlbCI6ImluZm8iLCJub2RlU2VsZWN0b3IiOnt9LCJwb3J0IjozMDAxLCJwcmlvcml0eUNsYXNzTmFtZSI6IiIsInByb21ldGhldXNTY3JhcGUiOmZhbHNlLCJyZXNvdXJjZXMiOnsibGltaXRzIjp7ImNwdSI6IjUwMG0ifSwicmVxdWVzdHMiOnsiY3B1IjoiNTBtIiwibWVtb3J5IjoiMjBNaSJ9fSwic2VydmljZSI6eyJhbm5vdGF0aW9ucyI6e30sImxhYmVscyI6e319LCJ0b2xlcmF0aW9ucyI6W10sInRyYWZmaWNMb2dnaW5nIjp0cnVlLCJ1cGRhdGVTdHJhdGVneSI6eyJ0eXBlIjoiUm9sbGluZ1VwZGF0ZSJ9fSwibm9kZVNlbGVjdG9yIjp7fSwicGVyc2lzdGVudFZvbHVtZSI6eyJhbm5vdGF0aW9ucyI6e30sImRiUFZFbmFibGVkIjpmYWxzZSwiZGJTaXplIjoiMzIuMEdpIiwiZW5hYmxlZCI6dHJ1ZSwibGFiZWxzIjp7fSwic2l6ZSI6IjMyR2kifSwicHJvbWV0aGV1cyI6eyJhbGVydFJlbGFiZWxDb25maWdzIjpudWxsLCJhbGVydG1hbmFnZXJGaWxlcyI6eyJhbGVydG1hbmFnZXIueW1sIjp7Imdsb2JhbCI6e30sInJlY2VpdmVycyI6W3sibmFtZSI6ImRlZmF1bHQtcmVjZWl2ZXIifV0sInJvdXRlIjp7Imdyb3VwX2ludGVydmFsIjoiNW0iLCJncm91cF93YWl0IjoiMTBzIiwicmVjZWl2ZXIiOiJkZWZhdWx0LXJlY2VpdmVyIiwicmVwZWF0X2ludGVydmFsIjoiM2gifX19LCJjb25maWdtYXBSZWxvYWQiOnt9LCJleHRyYVNjcmFwZUNvbmZpZ3MiOiItIGpvYl9uYW1lOiBrdWJlY29zdFxuICBob25vcl9sYWJlbHM6IHRydWVcbiAgc2NyYXBlX2ludGVydmFsOiAxbVxuICBzY3JhcGVfdGltZW91dDogNjBzXG4gIG1ldHJpY3NfcGF0aDogL21ldHJpY3NcbiAgc2NoZW1lOiBodHRwXG4gIGRuc19zZF9jb25maWdzOlxuICAtIG5hbWVzOlxuICAgIC0ge3sgdGVtcGxhdGUgXCJjb3N0LWFuYWx5emVyLnNlcnZpY2VOYW1lXCIgLiB9fVxuICAgIHR5cGU6ICdBJ1xuICAgIHBvcnQ6IDkwMDNcbi0gam9iX25hbWU6IGt1YmVjb3N0LW5ldHdvcmtpbmdcbiAga3ViZXJuZXRlc19zZF9jb25maWdzOlxuICAgIC0gcm9sZTogcG9kXG4gIHJlbGFiZWxfY29uZmlnczpcbiAgIyBTY3JhcGUgb25seSB0aGUgdGhlIHRhcmdldHMgbWF0Y2hpbmcgdGhlIGZvbGxvd2luZyBtZXRhZGF0YVxuICAgIC0gc291cmNlX2xhYmVsczogW19fbWV0YV9rdWJlcm5ldGVzX3BvZF9sYWJlbF9hcHBfa3ViZXJuZXRlc19pb19pbnN0YW5jZV1cbiAgICAgIGFjdGlvbjoga2VlcFxuICAgICAgcmVnZXg6ICBrdWJlY29zdFxuICAgIC0gc291cmNlX2xhYmVsczogW19fbWV0YV9rdWJlcm5ldGVzX3BvZF9sYWJlbF9hcHBfa3ViZXJuZXRlc19pb19uYW1lXVxuICAgICAgYWN0aW9uOiBrZWVwXG4gICAgICByZWdleDogIG5ldHdvcmstY29zdHNcbi0gam9iX25hbWU6IGt1YmVjb3N0LWFnZ3JlZ2F0b3JcbiAgc2NyYXBlX2ludGVydmFsOiAxbVxuICBzY3JhcGVfdGltZW91dDogNjBzXG4gIG1ldHJpY3NfcGF0aDogL21ldHJpY3NcbiAgc2NoZW1lOiBodHRwXG4gIGRuc19zZF9jb25maWdzOlxuICAtIG5hbWVzOlxuICAgIC0ge3sgdGVtcGxhdGUgXCJhZ2dyZWdhdG9yLnNlcnZpY2VOYW1lXCIgLiB9fVxuICAgIHR5cGU6ICdBJ1xuICAgIHt7LSBpZiBvciAuVmFsdWVzLnNhbWwuZW5hYmxlZCAuVmFsdWVzLm9pZGMuZW5hYmxlZCB9fVxuICAgIHBvcnQ6IDkwMDhcbiAgICB7ey0gZWxzZSB9fVxuICAgIHBvcnQ6IDkwMDRcbiAgICB7ey0gZW5kIH19XG4jIyBFbmFibGVzIHNjcmFwaW5nIG9mIE5WSURJQSBHUFUgbWV0cmljcyB2aWEgZGNnbS1leHBvcnRlci4gU2NyYXBlcyBhbGxcbiMjIGVuZHBvaW50cyB3aGljaCBjb250YWluIFwiZGNnbS1leHBvcnRlclwiIGluIGxhYmVscyBcImFwcFwiLFxuIyMgXCJhcHAua3ViZXJuZXRlcy5pby9jb21wb25lbnRcIiwgb3IgXCJhcHAua3ViZXJuZXRlcy5pby9uYW1lXCIgd2l0aCBhIGNhc2VcbiMjIGluc2Vuc2l0aXZlIG1hdGNoLlxuIyMgUmVmczpcbiMjIGh0dHBzOi8vZ2l0aHViLmNvbS9OVklESUEvZ3B1LW9wZXJhdG9yL2Jsb2IvZDQzMTZhNDE1YmJkNjg0Y2U4NDE2YTg4MDQyMzA1ZmMxYTA5M2FhNC9hc3NldHMvc3RhdGUtZGNnbS1leHBvcnRlci8wNjAwX3NlcnZpY2UueWFtbCNMN1xuIyMgaHR0cHM6Ly9naXRodWIuY29tL05WSURJQS9kY2dtLWV4cG9ydGVyL2Jsb2IvNTRmZDFjYTEzN2M2NjUxMWE4N2E3MjAzOTA2MTM2ODBiOWJkYWJkZC9kZXBsb3ltZW50L3RlbXBsYXRlcy9zZXJ2aWNlLnlhbWwjTDIzXG4tIGpvYl9uYW1lOiBrdWJlY29zdC1kY2dtLWV4cG9ydGVyXG4gIGt1YmVybmV0ZXNfc2RfY29uZmlnczpcbiAgICAtIHJvbGU6IGVuZHBvaW50c1xuICByZWxhYmVsX2NvbmZpZ3M6XG4gICAgLSBzb3VyY2VfbGFiZWxzOiBbX19tZXRhX2t1YmVybmV0ZXNfcG9kX2xhYmVsX2FwcCwgX19tZXRhX2t1YmVybmV0ZXNfcG9kX2xhYmVsX2FwcF9rdWJlcm5ldGVzX2lvX2NvbXBvbmVudCwgX19tZXRhX2t1YmVybmV0ZXNfcG9kX2xhYmVsX2FwcF9rdWJlcm5ldGVzX2lvX25hbWVdXG4gICAgICBhY3Rpb246IGtlZXBcbiAgICAgIHJlZ2V4OiAoP2kpKC4qZGNnbS1leHBvcnRlci4qfC4qZGNnbS1leHBvcnRlci4qfC4qZGNnbS1leHBvcnRlci4qKVxuIiwiaW1hZ2VQdWxsU2VjcmV0cyI6bnVsbCwicmJhYyI6eyJjcmVhdGUiOnRydWV9LCJzZXJ2ZXIiOnsiYWZmaW5pdHkiOnt9LCJhbGVydG1hbmFnZXJzIjpbXSwiYmFzZVVSTCI6IiIsImNvbmZpZ01hcE92ZXJyaWRlTmFtZSI6IiIsImNvbmZpZ1BhdGgiOiIvZXRjL2NvbmZpZy9wcm9tZXRoZXVzLnltbCIsImNvbnRhaW5lclNlY3VyaXR5Q29udGV4dCI6e30sImRlcGxveW1lbnRBbm5vdGF0aW9ucyI6e30sImVtcHR5RGlyIjp7InNpemVMaW1pdCI6IiJ9LCJlbmFibGVkIjp0cnVlLCJlbnYiOltdLCJleHRyYUFyZ3MiOnsicXVlcnkubWF4LWNvbmN1cnJlbmN5IjoxLCJxdWVyeS5tYXgtc2FtcGxlcyI6MTAwMDAwMDAwfSwiZXh0cmFDb25maWdtYXBNb3VudHMiOltdLCJleHRyYUZsYWdzIjpbIndlYi5lbmFibGUtbGlmZWN5Y2xlIl0sImV4dHJhSG9zdFBhdGhNb3VudHMiOltdLCJleHRyYUluaXRDb250YWluZXJzIjpbXSwiZXh0cmFTZWNyZXRNb3VudHMiOltdLCJleHRyYVZvbHVtZU1vdW50cyI6W10sImV4dHJhVm9sdW1lcyI6W10sImdsb2JhbCI6eyJldmFsdWF0aW9uX2ludGVydmFsIjoiMW0iLCJleHRlcm5hbF9sYWJlbHMiOnsiY2x1c3Rlcl9pZCI6ImNsdXN0ZXItb25lIn0sInNjcmFwZV9pbnRlcnZhbCI6IjFtIiwic2NyYXBlX3RpbWVvdXQiOiI2MHMifSwiaW1hZ2UiOnsicHVsbFBvbGljeSI6IklmTm90UHJlc2VudCIsInJlcG9zaXRvcnkiOiJjZ3IuZGV2L2NoYWluZ3VhcmQvcHJvbWV0aGV1cyIsInRhZyI6ImxhdGVzdCJ9LCJsaXZlbmVzc1Byb2JlRmFpbHVyZVRocmVzaG9sZCI6MywibGl2ZW5lc3NQcm9iZUluaXRpYWxEZWxheSI6NSwibGl2ZW5lc3NQcm9iZVN1Y2Nlc3NUaHJlc2hvbGQiOjEsImxpdmVuZXNzUHJvYmVUaW1lb3V0IjozLCJuYW1lIjoic2VydmVyIiwibm9kZVNlbGVjdG9yIjp7fSwicGVyc2lzdGVudFZvbHVtZSI6eyJhY2Nlc3NNb2RlcyI6WyJSZWFkV3JpdGVPbmNlIl0sImFubm90YXRpb25zIjp7fSwiZW5hYmxlZCI6dHJ1ZSwiZXhpc3RpbmdDbGFpbSI6IiIsIm1vdW50UGF0aCI6Ii9kYXRhIiwic2l6ZSI6IjMyR2kiLCJzdWJQYXRoIjoiIn0sInBvZEFubm90YXRpb25zIjp7fSwicG9kTGFiZWxzIjp7fSwicHJlZml4VVJMIjoiIiwicHJpb3JpdHlDbGFzc05hbWUiOiIiLCJyZWFkaW5lc3NQcm9iZUZhaWx1cmVUaHJlc2hvbGQiOjMsInJlYWRpbmVzc1Byb2JlSW5pdGlhbERlbGF5Ijo1LCJyZWFkaW5lc3NQcm9iZVN1Y2Nlc3NUaHJlc2hvbGQiOjEsInJlYWRpbmVzc1Byb2JlVGltZW91dCI6MywicmVtb3RlUmVhZCI6e30sInJlbW90ZVdyaXRlIjp7fSwicmVwbGljYUNvdW50IjoxLCJyZXNvdXJjZXMiOnt9LCJyZXRlbnRpb24iOiI5N2giLCJzZWN1cml0eUNvbnRleHQiOnt9LCJzZXJ2aWNlIjp7ImFubm90YXRpb25zIjp7fSwiY2x1c3RlcklQIjoiIiwiZXh0ZXJuYWxJUHMiOltdLCJsYWJlbHMiOnt9LCJsb2FkQmFsYW5jZXJJUCI6IiIsImxvYWRCYWxhbmNlclNvdXJjZVJhbmdlcyI6W10sInNlcnZpY2VQb3J0Ijo4MCwic2Vzc2lvbkFmZmluaXR5IjoiTm9uZSIsInR5cGUiOiJDbHVzdGVySVAifSwic2lkZWNhckNvbnRhaW5lcnMiOm51bGwsInN0cmF0ZWd5Ijp7InJvbGxpbmdVcGRhdGUiOm51bGwsInR5cGUiOiJSZWNyZWF0ZSJ9LCJ0ZXJtaW5hdGlvbkdyYWNlUGVyaW9kU2Vjb25kcyI6MzAwLCJ0b2xlcmF0aW9ucyI6W119LCJzZXJ2ZXJGaWxlcyI6eyJhbGVydGluZ19ydWxlcy55bWwiOnt9LCJhbGVydHMiOnt9LCJwcm9tZXRoZXVzLnltbCI6eyJydWxlX2ZpbGVzIjpbIi9ldGMvY29uZmlnL3JlY29yZGluZ19ydWxlcy55bWwiLCIvZXRjL2NvbmZpZy9hbGVydGluZ19ydWxlcy55bWwiLCIvZXRjL2NvbmZpZy9ydWxlcyIsIi9ldGMvY29uZmlnL2FsZXJ0cyJdLCJzY3JhcGVfY29uZmlncyI6W3siam9iX25hbWUiOiJwcm9tZXRoZXVzIiwic3RhdGljX2NvbmZpZ3MiOlt7InRhcmdldHMiOlsibG9jYWxob3N0OjkwOTAiXX1dfSx7ImJlYXJlcl90b2tlbl9maWxlIjoiL3Zhci9ydW4vc2VjcmV0cy9rdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3Rva2VuIiwiam9iX25hbWUiOiJrdWJlcm5ldGVzLW5vZGVzLWNhZHZpc29yIiwia3ViZXJuZXRlc19zZF9jb25maWdzIjpbeyJyb2xlIjoibm9kZSJ9XSwibWV0cmljX3JlbGFiZWxfY29uZmlncyI6W3siYWN0aW9uIjoia2VlcCIsInJlZ2V4IjoiKGNvbnRhaW5lcl9jcHVfdXNhZ2Vfc2Vjb25kc190b3RhbHxjb250YWluZXJfbWVtb3J5X3dvcmtpbmdfc2V0X2J5dGVzfGNvbnRhaW5lcl9uZXR3b3JrX3JlY2VpdmVfZXJyb3JzX3RvdGFsfGNvbnRhaW5lcl9uZXR3b3JrX3RyYW5zbWl0X2Vycm9yc190b3RhbHxjb250YWluZXJfbmV0d29ya19yZWNlaXZlX3BhY2tldHNfZHJvcHBlZF90b3RhbHxjb250YWluZXJfbmV0d29ya190cmFuc21pdF9wYWNrZXRzX2Ryb3BwZWRfdG90YWx8Y29udGFpbmVyX21lbW9yeV91c2FnZV9ieXRlc3xjb250YWluZXJfY3B1X2Nmc190aHJvdHRsZWRfcGVyaW9kc190b3RhbHxjb250YWluZXJfY3B1X2Nmc19wZXJpb2RzX3RvdGFsfGNvbnRhaW5lcl9mc191c2FnZV9ieXRlc3xjb250YWluZXJfZnNfbGltaXRfYnl0ZXN8Y29udGFpbmVyX2NwdV9jZnNfcGVyaW9kc190b3RhbHxjb250YWluZXJfZnNfaW5vZGVzX2ZyZWV8Y29udGFpbmVyX2ZzX2lub2Rlc190b3RhbHxjb250YWluZXJfZnNfdXNhZ2VfYnl0ZXN8Y29udGFpbmVyX2ZzX2xpbWl0X2J5dGVzfGNvbnRhaW5lcl9jcHVfY2ZzX3Rocm90dGxlZF9wZXJpb2RzX3RvdGFsfGNvbnRhaW5lcl9jcHVfY2ZzX3BlcmlvZHNfdG90YWx8Y29udGFpbmVyX25ldHdvcmtfcmVjZWl2ZV9ieXRlc190b3RhbHxjb250YWluZXJfbmV0d29ya190cmFuc21pdF9ieXRlc190b3RhbHxjb250YWluZXJfZnNfaW5vZGVzX2ZyZWV8Y29udGFpbmVyX2ZzX2lub2Rlc190b3RhbHxjb250YWluZXJfZnNfdXNhZ2VfYnl0ZXN8Y29udGFpbmVyX2ZzX2xpbWl0X2J5dGVzfGNvbnRhaW5lcl9zcGVjX2NwdV9zaGFyZXN8Y29udGFpbmVyX3NwZWNfbWVtb3J5X2xpbWl0X2J5dGVzfGNvbnRhaW5lcl9uZXR3b3JrX3JlY2VpdmVfYnl0ZXNfdG90YWx8Y29udGFpbmVyX25ldHdvcmtfdHJhbnNtaXRfYnl0ZXNfdG90YWx8Y29udGFpbmVyX2ZzX3JlYWRzX2J5dGVzX3RvdGFsfGNvbnRhaW5lcl9uZXR3b3JrX3JlY2VpdmVfYnl0ZXNfdG90YWx8Y29udGFpbmVyX2ZzX3dyaXRlc19ieXRlc190b3RhbHxjb250YWluZXJfZnNfcmVhZHNfYnl0ZXNfdG90YWx8Y2Fkdmlzb3JfdmVyc2lvbl9pbmZvfGt1YmVjb3N0X3B2X2luZm8pIiwic291cmNlX2xhYmVscyI6WyJfX25hbWVfXyJdfSx7ImFjdGlvbiI6InJlcGxhY2UiLCJyZWdleCI6IiguKykiLCJzb3VyY2VfbGFiZWxzIjpbImNvbnRhaW5lciJdLCJ0YXJnZXRfbGFiZWwiOiJjb250YWluZXJfbmFtZSJ9LHsiYWN0aW9uIjoicmVwbGFjZSIsInJlZ2V4IjoiKC4rKSIsInNvdXJjZV9sYWJlbHMiOlsicG9kIl0sInRhcmdldF9sYWJlbCI6InBvZF9uYW1lIn1dLCJyZWxhYmVsX2NvbmZpZ3MiOlt7ImFjdGlvbiI6ImxhYmVsbWFwIiwicmVnZXgiOiJfX21ldGFfa3ViZXJuZXRlc19ub2RlX2xhYmVsXyguKykifSx7InJlcGxhY2VtZW50Ijoia3ViZXJuZXRlcy5kZWZhdWx0LnN2Yzo0NDMiLCJ0YXJnZXRfbGFiZWwiOiJfX2FkZHJlc3NfXyJ9LHsicmVnZXgiOiIoLispIiwicmVwbGFjZW1lbnQiOiIvYXBpL3YxL25vZGVzLyQxL3Byb3h5L21ldHJpY3MvY2Fkdmlzb3IiLCJzb3VyY2VfbGFiZWxzIjpbIl9fbWV0YV9rdWJlcm5ldGVzX25vZGVfbmFtZSJdLCJ0YXJnZXRfbGFiZWwiOiJfX21ldHJpY3NfcGF0aF9fIn1dLCJzY2hlbWUiOiJodHRwcyIsInRsc19jb25maWciOnsiY2FfZmlsZSI6Ii92YXIvcnVuL3NlY3JldHMva3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9jYS5jcnQiLCJpbnNlY3VyZV9za2lwX3ZlcmlmeSI6dHJ1ZX19LHsiYmVhcmVyX3Rva2VuX2ZpbGUiOiIvdmFyL3J1bi9zZWNyZXRzL2t1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvdG9rZW4iLCJqb2JfbmFtZSI6Imt1YmVybmV0ZXMtbm9kZXMiLCJrdWJlcm5ldGVzX3NkX2NvbmZpZ3MiOlt7InJvbGUiOiJub2RlIn1dLCJtZXRyaWNfcmVsYWJlbF9jb25maWdzIjpbeyJhY3Rpb24iOiJrZWVwIiwicmVnZXgiOiIoa3ViZWxldF92b2x1bWVfc3RhdHNfdXNlZF9ieXRlcykiLCJzb3VyY2VfbGFiZWxzIjpbIl9fbmFtZV9fIl19XSwicmVsYWJlbF9jb25maWdzIjpbeyJhY3Rpb24iOiJsYWJlbG1hcCIsInJlZ2V4IjoiX19tZXRhX2t1YmVybmV0ZXNfbm9kZV9sYWJlbF8oLispIn0seyJyZXBsYWNlbWVudCI6Imt1YmVybmV0ZXMuZGVmYXVsdC5zdmM6NDQzIiwidGFyZ2V0X2xhYmVsIjoiX19hZGRyZXNzX18ifSx7InJlZ2V4IjoiKC4rKSIsInJlcGxhY2VtZW50IjoiL2FwaS92MS9ub2Rlcy8kMS9wcm94eS9tZXRyaWNzIiwic291cmNlX2xhYmVscyI6WyJfX21ldGFfa3ViZXJuZXRlc19ub2RlX25hbWUiXSwidGFyZ2V0X2xhYmVsIjoiX19tZXRyaWNzX3BhdGhfXyJ9XSwic2NoZW1lIjoiaHR0cHMiLCJ0bHNfY29uZmlnIjp7ImNhX2ZpbGUiOiIvdmFyL3J1bi9zZWNyZXRzL2t1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvY2EuY3J0IiwiaW5zZWN1cmVfc2tpcF92ZXJpZnkiOnRydWV9fSx7ImpvYl9uYW1lIjoia3ViZXJuZXRlcy1zZXJ2aWNlLWVuZHBvaW50cyIsImt1YmVybmV0ZXNfc2RfY29uZmlncyI6W3sicm9sZSI6ImVuZHBvaW50cyJ9XSwibWV0cmljX3JlbGFiZWxfY29uZmlncyI6W3siYWN0aW9uIjoia2VlcCIsInJlZ2V4IjoiKGNvbnRhaW5lcl9jcHVfYWxsb2NhdGlvbnxjb250YWluZXJfY3B1X3VzYWdlX3NlY29uZHNfdG90YWx8Y29udGFpbmVyX2ZzX2xpbWl0X2J5dGVzfGNvbnRhaW5lcl9mc193cml0ZXNfYnl0ZXNfdG90YWx8Y29udGFpbmVyX2dwdV9hbGxvY2F0aW9ufGNvbnRhaW5lcl9tZW1vcnlfYWxsb2NhdGlvbl9ieXRlc3xjb250YWluZXJfbWVtb3J5X3VzYWdlX2J5dGVzfGNvbnRhaW5lcl9tZW1vcnlfd29ya2luZ19zZXRfYnl0ZXN8Y29udGFpbmVyX25ldHdvcmtfcmVjZWl2ZV9ieXRlc190b3RhbHxjb250YWluZXJfbmV0d29ya190cmFuc21pdF9ieXRlc190b3RhbHxEQ0dNX0ZJX0RFVl9HUFVfVVRJTHxkZXBsb3ltZW50X21hdGNoX2xhYmVsc3xrdWJlX2RhZW1vbnNldF9zdGF0dXNfZGVzaXJlZF9udW1iZXJfc2NoZWR1bGVkfGt1YmVfZGFlbW9uc2V0X3N0YXR1c19udW1iZXJfcmVhZHl8a3ViZV9kZXBsb3ltZW50X3NwZWNfcmVwbGljYXN8a3ViZV9kZXBsb3ltZW50X3N0YXR1c19yZXBsaWNhc3xrdWJlX2RlcGxveW1lbnRfc3RhdHVzX3JlcGxpY2FzX2F2YWlsYWJsZXxrdWJlX2pvYl9zdGF0dXNfZmFpbGVkfGt1YmVfbmFtZXNwYWNlX2Fubm90YXRpb25zfGt1YmVfbmFtZXNwYWNlX2xhYmVsc3xrdWJlX25vZGVfaW5mb3xrdWJlX25vZGVfbGFiZWxzfGt1YmVfbm9kZV9zdGF0dXNfYWxsb2NhdGFibGV8a3ViZV9ub2RlX3N0YXR1c19hbGxvY2F0YWJsZV9jcHVfY29yZXN8a3ViZV9ub2RlX3N0YXR1c19hbGxvY2F0YWJsZV9tZW1vcnlfYnl0ZXN8a3ViZV9ub2RlX3N0YXR1c19jYXBhY2l0eXxrdWJlX25vZGVfc3RhdHVzX2NhcGFjaXR5X2NwdV9jb3Jlc3xrdWJlX25vZGVfc3RhdHVzX2NhcGFjaXR5X21lbW9yeV9ieXRlc3xrdWJlX25vZGVfc3RhdHVzX2NvbmRpdGlvbnxrdWJlX3BlcnNpc3RlbnR2b2x1bWVfY2FwYWNpdHlfYnl0ZXN8a3ViZV9wZXJzaXN0ZW50dm9sdW1lX3N0YXR1c19waGFzZXxrdWJlX3BlcnNpc3RlbnR2b2x1bWVjbGFpbV9pbmZvfGt1YmVfcGVyc2lzdGVudHZvbHVtZWNsYWltX3Jlc291cmNlX3JlcXVlc3RzX3N0b3JhZ2VfYnl0ZXN8a3ViZV9wb2RfY29udGFpbmVyX2luZm98a3ViZV9wb2RfY29udGFpbmVyX3Jlc291cmNlX2xpbWl0c3xrdWJlX3BvZF9jb250YWluZXJfcmVzb3VyY2VfbGltaXRzX2NwdV9jb3Jlc3xrdWJlX3BvZF9jb250YWluZXJfcmVzb3VyY2VfbGltaXRzX21lbW9yeV9ieXRlc3xrdWJlX3BvZF9jb250YWluZXJfcmVzb3VyY2VfcmVxdWVzdHN8a3ViZV9wb2RfY29udGFpbmVyX3Jlc291cmNlX3JlcXVlc3RzX2NwdV9jb3Jlc3xrdWJlX3BvZF9jb250YWluZXJfcmVzb3VyY2VfcmVxdWVzdHNfbWVtb3J5X2J5dGVzfGt1YmVfcG9kX2NvbnRhaW5lcl9zdGF0dXNfcmVzdGFydHNfdG90YWx8a3ViZV9wb2RfY29udGFpbmVyX3N0YXR1c19ydW5uaW5nfGt1YmVfcG9kX2NvbnRhaW5lcl9zdGF0dXNfdGVybWluYXRlZF9yZWFzb258a3ViZV9wb2RfbGFiZWxzfGt1YmVfcG9kX293bmVyfGt1YmVfcG9kX3N0YXR1c19waGFzZXxrdWJlX3JlcGxpY2FzZXRfb3duZXJ8a3ViZV9zdGF0ZWZ1bHNldF9yZXBsaWNhc3xrdWJlX3N0YXRlZnVsc2V0X3N0YXR1c19yZXBsaWNhc3xrdWJlY29zdF9jbHVzdGVyX2luZm98a3ViZWNvc3RfY2x1c3Rlcl9tYW5hZ2VtZW50X2Nvc3R8a3ViZWNvc3RfY2x1c3Rlcl9tZW1vcnlfd29ya2luZ19zZXRfYnl0ZXN8a3ViZWNvc3RfbG9hZF9iYWxhbmNlcl9jb3N0fGt1YmVjb3N0X25ldHdvcmtfaW50ZXJuZXRfZWdyZXNzX2Nvc3R8a3ViZWNvc3RfbmV0d29ya19yZWdpb25fZWdyZXNzX2Nvc3R8a3ViZWNvc3RfbmV0d29ya196b25lX2VncmVzc19jb3N0fGt1YmVjb3N0X25vZGVfaXNfc3BvdHxrdWJlY29zdF9wb2RfbmV0d29ya19lZ3Jlc3NfYnl0ZXNfdG90YWx8bm9kZV9jcHVfaG91cmx5X2Nvc3R8bm9kZV9jcHVfc2Vjb25kc190b3RhbHxub2RlX2Rpc2tfcmVhZHNfY29tcGxldGVkfG5vZGVfZGlza19yZWFkc19jb21wbGV0ZWRfdG90YWx8bm9kZV9kaXNrX3dyaXRlc19jb21wbGV0ZWR8bm9kZV9kaXNrX3dyaXRlc19jb21wbGV0ZWRfdG90YWx8bm9kZV9maWxlc3lzdGVtX2RldmljZV9lcnJvcnxub2RlX2dwdV9jb3VudHxub2RlX2dwdV9ob3VybHlfY29zdHxub2RlX21lbW9yeV9CdWZmZXJzX2J5dGVzfG5vZGVfbWVtb3J5X0NhY2hlZF9ieXRlc3xub2RlX21lbW9yeV9NZW1BdmFpbGFibGVfYnl0ZXN8bm9kZV9tZW1vcnlfTWVtRnJlZV9ieXRlc3xub2RlX21lbW9yeV9NZW1Ub3RhbF9ieXRlc3xub2RlX25ldHdvcmtfdHJhbnNtaXRfYnl0ZXNfdG90YWx8bm9kZV9yYW1faG91cmx5X2Nvc3R8bm9kZV90b3RhbF9ob3VybHlfY29zdHxwb2RfcHZjX2FsbG9jYXRpb258cHZfaG91cmx5X2Nvc3R8c2VydmljZV9zZWxlY3Rvcl9sYWJlbHN8c3RhdGVmdWxTZXRfbWF0Y2hfbGFiZWxzfGt1YmVjb3N0X3B2X2luZm98dXApIiwic291cmNlX2xhYmVscyI6WyJfX25hbWVfXyJdfV0sInJlbGFiZWxfY29uZmlncyI6W3siYWN0aW9uIjoia2VlcCIsInJlZ2V4Ijp0cnVlLCJzb3VyY2VfbGFiZWxzIjpbIl9fbWV0YV9rdWJlcm5ldGVzX3NlcnZpY2VfYW5ub3RhdGlvbl9wcm9tZXRoZXVzX2lvX3NjcmFwZSJdfSx7ImFjdGlvbiI6ImtlZXAiLCJyZWdleCI6IiguKm5vZGUtZXhwb3J0ZXJ8a3ViZWNvc3QtbmV0d29yay1jb3N0cykiLCJzb3VyY2VfbGFiZWxzIjpbIl9fbWV0YV9rdWJlcm5ldGVzX2VuZHBvaW50c19uYW1lIl19LHsiYWN0aW9uIjoicmVwbGFjZSIsInJlZ2V4IjoiKGh0dHBzPykiLCJzb3VyY2VfbGFiZWxzIjpbIl9fbWV0YV9rdWJlcm5ldGVzX3NlcnZpY2VfYW5ub3RhdGlvbl9wcm9tZXRoZXVzX2lvX3NjaGVtZSJdLCJ0YXJnZXRfbGFiZWwiOiJfX3NjaGVtZV9fIn0seyJhY3Rpb24iOiJyZXBsYWNlIiwicmVnZXgiOiIoLispIiwic291cmNlX2xhYmVscyI6WyJfX21ldGFfa3ViZXJuZXRlc19zZXJ2aWNlX2Fubm90YXRpb25fcHJvbWV0aGV1c19pb19wYXRoIl0sInRhcmdldF9sYWJlbCI6Il9fbWV0cmljc19wYXRoX18ifSx7ImFjdGlvbiI6InJlcGxhY2UiLCJyZWdleCI6IihbXjpdKykoPzo6XFxkKyk/OyhcXGQrKSIsInJlcGxhY2VtZW50IjoiJDE6JDIiLCJzb3VyY2VfbGFiZWxzIjpbIl9fYWRkcmVzc19fIiwiX19tZXRhX2t1YmVybmV0ZXNfc2VydmljZV9hbm5vdGF0aW9uX3Byb21ldGhldXNfaW9fcG9ydCJdLCJ0YXJnZXRfbGFiZWwiOiJfX2FkZHJlc3NfXyJ9LHsiYWN0aW9uIjoibGFiZWxtYXAiLCJyZWdleCI6Il9fbWV0YV9rdWJlcm5ldGVzX3NlcnZpY2VfbGFiZWxfKC4rKSJ9LHsiYWN0aW9uIjoicmVwbGFjZSIsInNvdXJjZV9sYWJlbHMiOlsiX19tZXRhX2t1YmVybmV0ZXNfbmFtZXNwYWNlIl0sInRhcmdldF9sYWJlbCI6Imt1YmVybmV0ZXNfbmFtZXNwYWNlIn0seyJhY3Rpb24iOiJyZXBsYWNlIiwic291cmNlX2xhYmVscyI6WyJfX21ldGFfa3ViZXJuZXRlc19zZXJ2aWNlX25hbWUiXSwidGFyZ2V0X2xhYmVsIjoia3ViZXJuZXRlc19uYW1lIn0seyJhY3Rpb24iOiJyZXBsYWNlIiwic291cmNlX2xhYmVscyI6WyJfX21ldGFfa3ViZXJuZXRlc19wb2Rfbm9kZV9uYW1lIl0sInRhcmdldF9sYWJlbCI6Imt1YmVybmV0ZXNfbm9kZSJ9XX1dfSwicmVjb3JkaW5nX3J1bGVzLnltbCI6e30sInJ1bGVzIjp7Imdyb3VwcyI6W3sibmFtZSI6IkNQVSIsInJ1bGVzIjpbeyJleHByIjoic3VtKHJhdGUoY29udGFpbmVyX2NwdV91c2FnZV9zZWNvbmRzX3RvdGFse2NvbnRhaW5lciE9XCJcIn1bNW1dKSkiLCJyZWNvcmQiOiJjbHVzdGVyOmNwdV91c2FnZTpyYXRlNW0ifSx7ImV4cHIiOiJyYXRlKGNvbnRhaW5lcl9jcHVfdXNhZ2Vfc2Vjb25kc190b3RhbHtjb250YWluZXIhPVwiXCJ9WzVtXSkiLCJyZWNvcmQiOiJjbHVzdGVyOmNwdV91c2FnZV9ub3N1bTpyYXRlNW0ifSx7ImV4cHIiOiJhdmcoaXJhdGUoY29udGFpbmVyX2NwdV91c2FnZV9zZWNvbmRzX3RvdGFse2NvbnRhaW5lciE9XCJQT0RcIiwgY29udGFpbmVyIT1cIlwifVs1bV0pKSBieSAoY29udGFpbmVyLHBvZCxuYW1lc3BhY2UpIiwicmVjb3JkIjoia3ViZWNvc3RfY29udGFpbmVyX2NwdV91c2FnZV9pcmF0ZSJ9LHsiZXhwciI6InN1bShjb250YWluZXJfbWVtb3J5X3dvcmtpbmdfc2V0X2J5dGVze2NvbnRhaW5lciE9XCJQT0RcIixjb250YWluZXIhPVwiXCJ9KSBieSAoY29udGFpbmVyLHBvZCxuYW1lc3BhY2UpIiwicmVjb3JkIjoia3ViZWNvc3RfY29udGFpbmVyX21lbW9yeV93b3JraW5nX3NldF9ieXRlcyJ9LHsiZXhwciI6InN1bShjb250YWluZXJfbWVtb3J5X3dvcmtpbmdfc2V0X2J5dGVze2NvbnRhaW5lciE9XCJQT0RcIixjb250YWluZXIhPVwiXCJ9KSIsInJlY29yZCI6Imt1YmVjb3N0X2NsdXN0ZXJfbWVtb3J5X3dvcmtpbmdfc2V0X2J5dGVzIn1dfSx7Im5hbWUiOiJTYXZpbmdzIiwicnVsZXMiOlt7ImV4cHIiOiJzdW0oYXZnKGt1YmVfcG9kX293bmVye293bmVyX2tpbmQhPVwiRGFlbW9uU2V0XCJ9KSBieSAocG9kKSAqIHN1bShjb250YWluZXJfY3B1X2FsbG9jYXRpb24pIGJ5IChwb2QpKSIsImxhYmVscyI6eyJkYWVtb25zZXQiOiJmYWxzZSJ9LCJyZWNvcmQiOiJrdWJlY29zdF9zYXZpbmdzX2NwdV9hbGxvY2F0aW9uIn0seyJleHByIjoic3VtKGF2ZyhrdWJlX3BvZF9vd25lcntvd25lcl9raW5kPVwiRGFlbW9uU2V0XCJ9KSBieSAocG9kKSAqIHN1bShjb250YWluZXJfY3B1X2FsbG9jYXRpb24pIGJ5IChwb2QpKSAvIHN1bShrdWJlX25vZGVfaW5mbykiLCJsYWJlbHMiOnsiZGFlbW9uc2V0IjoidHJ1ZSJ9LCJyZWNvcmQiOiJrdWJlY29zdF9zYXZpbmdzX2NwdV9hbGxvY2F0aW9uIn0seyJleHByIjoic3VtKGF2ZyhrdWJlX3BvZF9vd25lcntvd25lcl9raW5kIT1cIkRhZW1vblNldFwifSkgYnkgKHBvZCkgKiBzdW0oY29udGFpbmVyX21lbW9yeV9hbGxvY2F0aW9uX2J5dGVzKSBieSAocG9kKSkiLCJsYWJlbHMiOnsiZGFlbW9uc2V0IjoiZmFsc2UifSwicmVjb3JkIjoia3ViZWNvc3Rfc2F2aW5nc19tZW1vcnlfYWxsb2NhdGlvbl9ieXRlcyJ9LHsiZXhwciI6InN1bShhdmcoa3ViZV9wb2Rfb3duZXJ7b3duZXJfa2luZD1cIkRhZW1vblNldFwifSkgYnkgKHBvZCkgKiBzdW0oY29udGFpbmVyX21lbW9yeV9hbGxvY2F0aW9uX2J5dGVzKSBieSAocG9kKSkgLyBzdW0oa3ViZV9ub2RlX2luZm8pIiwibGFiZWxzIjp7ImRhZW1vbnNldCI6InRydWUifSwicmVjb3JkIjoia3ViZWNvc3Rfc2F2aW5nc19tZW1vcnlfYWxsb2NhdGlvbl9ieXRlcyJ9XX1dfX0sInNlcnZpY2VBY2NvdW50cyI6eyJhbGVydG1hbmFnZXIiOnsiY3JlYXRlIjp0cnVlLCJuYW1lIjpudWxsfSwibm9kZUV4cG9ydGVyIjp7ImNyZWF0ZSI6dHJ1ZSwibmFtZSI6bnVsbH0sInB1c2hnYXRld2F5Ijp7ImNyZWF0ZSI6dHJ1ZSwibmFtZSI6bnVsbH0sInNlcnZlciI6eyJhbm5vdGF0aW9ucyI6e30sImNyZWF0ZSI6dHJ1ZSwibmFtZSI6bnVsbH19fSwicmVwb3J0aW5nIjp7ImVycm9yUmVwb3J0aW5nIjp0cnVlLCJsb2dDb2xsZWN0aW9uIjp0cnVlLCJwcm9kdWN0QW5hbHl0aWNzIjp0cnVlLCJ2YWx1ZXNSZXBvcnRpbmciOnRydWV9LCJzZXJ2aWNlIjp7ImFubm90YXRpb25zIjp7fSwibGFiZWxzIjp7fSwibm9kZVBvcnQiOnt9LCJwb3J0Ijo5MDkwLCJ0YXJnZXRQb3J0Ijo5MDkwLCJ0eXBlIjoiQ2x1c3RlcklQIn0sInNlcnZpY2VBY2NvdW50Ijp7ImFubm90YXRpb25zIjp7fSwiY3JlYXRlIjp0cnVlfSwic2lnVjRQcm94eSI6eyJleHRyYUVudiI6bnVsbCwiaG9zdCI6ImFwcy13b3Jrc3BhY2VzLnVzLXdlc3QtMi5hbWF6b25hd3MuY29tIiwiaW1hZ2UiOiJwdWJsaWMuZWNyLmF3cy9hd3Mtb2JzZXJ2YWJpbGl0eS9hd3Mtc2lndjQtcHJveHk6bGF0ZXN0IiwiaW1hZ2VQdWxsUG9saWN5IjoiSWZOb3RQcmVzZW50IiwibmFtZSI6ImFwcyIsInBvcnQiOjgwMDUsInJlZ2lvbiI6InVzLXdlc3QtMiIsInJlc291cmNlcyI6e319LCJzdXBwb3J0TkZTIjpmYWxzZSwidG9sZXJhdGlvbnMiOltdLCJ0b3BvbG9neVNwcmVhZENvbnN0cmFpbnRzIjpbXSwidXBncmFkZSI6eyJ0b1YyIjpmYWxzZX19
+            - name: READ_ONLY
+              value: "false"
+            - name: PROMETHEUS_SERVER_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: kubecost-cost-analyzer
+                  key: prometheus-server-endpoint
+            - name: CLOUD_PROVIDER_API_KEY
+              value: "AIzaSyDXQPG_MHUEy9neR7stolq6l0ujXmjJlvk" # The GCP Pricing API key.This GCP api key is expected to be here and is limited to accessing google's billing API.
+            - name: CONFIG_PATH
+              value: /var/configs/
+            - name: DB_PATH
+              value: /var/db/
+            - name: CLUSTER_PROFILE
+              value: production
+            - name: EMIT_POD_ANNOTATIONS_METRIC
+              value: "false"
+            - name: EMIT_NAMESPACE_ANNOTATIONS_METRIC
+              value: "false"
+            - name: EMIT_KSM_V1_METRICS
+              value: "true"
+            - name: EMIT_KSM_V1_METRICS_ONLY # ONLY emit KSM v1 metrics that do not exist in KSM 2 by default
+              value: "false"
+            - name: LOG_COLLECTION_ENABLED
+              value: "true"
+            - name: PRODUCT_ANALYTICS_ENABLED
+              value: "true"
+            - name: ERROR_REPORTING_ENABLED
+              value: "true"
+            - name: VALUES_REPORTING_ENABLED
+              value: "true"
+            - name: SENTRY_DSN
+              value: "https://71964476292e4087af8d5072afe43abd@o394722.ingest.sentry.io/5245431"
+            - name: LEGACY_EXTERNAL_API_DISABLED
+              value: "false"
+            - name: CACHE_WARMING_ENABLED
+              value: "false"
+            - name: SAVINGS_ENABLED
+              value: "true"
+            - name: ETL_RESOLUTION_SECONDS
+              value: "300"
+            - name: ETL_MAX_PROMETHEUS_QUERY_DURATION_MINUTES
+              value: "1440"
+            - name: ETL_DAILY_STORE_DURATION_DAYS
+              value: "91"
+            - name: ETL_HOURLY_STORE_DURATION_HOURS
+              value: "49"
+            - name: ETL_FILE_STORE_ENABLED
+              value: "true"
+            - name: ETL_ASSET_RECONCILIATION_ENABLED
+              value: "true"
+            - name: CONTAINER_STATS_ENABLED
+              value: "true"
+            - name: RECONCILE_NETWORK
+              value: "true"
+            - name: KUBECOST_METRICS_POD_ENABLED
+              value: "false"
+            - name: PV_ENABLED
+              value: "true"
+            - name: MAX_QUERY_CONCURRENCY
+              value: "5"
+            - name: UTC_OFFSET
+              value: "+00:00"
+            - name: NETWORK_COSTS_PORT
+              value: "3001"
+            # ADVANCED_NETWORK_STATS is a feature offered by Kubecost that gives you network
+            # insights of your Kubernetes resources with cloud services. The feature is
+            # enabled when network cost is enabled and one of the service tagging is enabled
+            - name: ADVANCED_NETWORK_STATS
+              value: "true"
+            - name: CLUSTER_ID
+              value: cluster-one
+            - name: COST_EVENTS_AUDIT_ENABLED
+              value: "false"
+            - name: RELEASE_NAME
+              value: kubecost
+            - name: KUBECOST_NAMESPACE
+              value: kubecost
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: KUBECOST_TOKEN
+              valueFrom:
+                configMapKeyRef:
+                  name: kubecost-cost-analyzer
+                  key: kubecost-token
+            - name: WATERFOWL_ENABLED
+              value: "true"
+            - name: DIAGNOSTICS_RUN_IN_COST_MODEL
+              value: "false"
+        - image: gcr.io/kubecost1/frontend:prod-2.4.0
+          env:
+            - name: GET_HOSTS_FROM
+              value: dns
+          name: cost-analyzer-frontend
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: tmp
+              mountPath: /var/lib/nginx/tmp
+            - name: tmp
+              mountPath: /var/run
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/
+          resources:
+            requests:
+              cpu: 10m
+              memory: 55Mi
+          imagePullPolicy: IfNotPresent
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9003
+            initialDelaySeconds: 1
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9003
+            initialDelaySeconds: 1
+            periodSeconds: 5
+            failureThreshold: 6
+        
+        
+        - name: aggregator
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: gcr.io/kubecost1/cost-model:prod-2.4.0
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9004
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 200
+          imagePullPolicy: IfNotPresent
+          args: ["waterfowl"]
+          ports:
+            - name: tcp-api
+              containerPort: 9004
+              protocol: TCP
+          resources:
+            {}
+          volumeMounts:
+            - name: persistent-configs
+              mountPath: /var/configs
+          env:
+            - name: CLUSTER_ID
+              value: cluster-one
+            - name: NUM_DB_COPY_CHUNKS
+              value: "25"
+            - name: CONFIG_PATH
+              value: /var/configs/
+            - name: CLOUD_PROVIDER_API_KEY
+              value: "AIzaSyDXQPG_MHUEy9neR7stolq6l0ujXmjJlvk" # The GCP Pricing API key.This GCP api key is expected to be here and is limited to accessing google's billing API.'
+            - name: READ_ONLY
+              value: "false"
+            - name: CUSTOM_COST_ENABLED
+              value: "false"
+            - name: LOG_LEVEL
+              value: info
+            - name: DB_READ_THREADS
+              value: "1"
+            - name: DB_WRITE_THREADS
+              value: "1"
+            - name: DB_CONCURRENT_INGESTION_COUNT
+              value: "1"
+            - name: ETL_DAILY_STORE_DURATION_DAYS
+              value: "91"
+            - name: ETL_HOURLY_STORE_DURATION_HOURS
+              value: "49"
+            - name: CONTAINER_RESOURCE_USAGE_RETENTION_DAYS
+              value: "1"
+            - name: DB_TRIM_MEMORY_ON_CLOSE
+              value: "true"
+            - name: KUBECOST_NAMESPACE
+              value: kubecost
+            - name: GRAFANA_ENABLED
+              value: "false"
+        
+        - name: cloud-cost
+          image: gcr.io/kubecost1/cost-model:prod-2.4.0
+          
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9005
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 200
+          imagePullPolicy: IfNotPresent
+          args: ["cloud-cost"]
+          ports:
+            - name: tcp-api
+              containerPort: 9005
+              protocol: TCP
+          resources:
+            {}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: persistent-configs
+              mountPath: /var/configs
+          env:
+            - name: CONFIG_PATH
+              value: /var/configs/
+            - name: ETL_DAILY_STORE_DURATION_DAYS
+              value: "91"
+            - name: CLOUD_COST_REFRESH_RATE_HOURS
+              value: "6"
+            - name: CLOUD_COST_QUERY_WINDOW_DAYS
+              value: "7"
+            - name: CLOUD_COST_RUN_WINDOW_DAYS
+              value: "3"
+            - name: CUSTOM_COST_ENABLED
+              value: "false"
+---
+# Source: cost-analyzer/templates/forecasting-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubecost-forecasting
+  namespace: kubecost
+  labels:
+    helm.sh/chart: cost-analyzer-2.4.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: forecasting
+    app.kubernetes.io/instance: kubecost
+    app: forecasting
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: forecasting
+      app.kubernetes.io/instance: kubecost
+      app: forecasting
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: forecasting
+        app.kubernetes.io/instance: kubecost
+        app: forecasting
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      restartPolicy: Always
+      containers:
+        - name: forecasting
+          image: gcr.io/kubecost1/kubecost-modeling:v0.1.16
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: tcp-api
+              containerPort: 5000
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 1500m
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 300Mi
+          env:
+            - name: CONFIG_PATH
+              value: /var/configs/
+            - name: KCM_BASE_URL
+              value: http://kubecost-aggregator:9004
+            - name: MODEL_STORAGE_PATH
+              value: "/tmp/localrun/models"
+            - name: PAGE_ITEM_LIMIT
+              value: "1000"
+            - name: "GUNICORN_CMD_ARGS"
+              value: "--log-level info -t 1200"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 200
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 200
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 500Mi
+---
+# Source: cost-analyzer/templates/prometheus-server-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: "server"
+    app: prometheus
+    release: kubecost
+    heritage: Helm
+  name: kubecost-prometheus-server
+  namespace: kubecost
+spec:
+  selector:
+    matchLabels:
+      component: "server"
+      app: prometheus
+      release: kubecost
+  replicas: 1
+  strategy:
+    rollingUpdate: null
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        checksum/configs: b694428a756844bae536701738dd50c8c3ee1882d136419dcd414dce9257255e
+      labels:
+        component: "server"
+        app: prometheus
+        release: kubecost
+        heritage: Helm
+    spec:
+      serviceAccountName: kubecost-prometheus-server
+      containers:
+
+        - name: prometheus-server
+          image: "cgr.dev/chainguard/prometheus:latest"
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --storage.tsdb.retention.time=97h
+            - --config.file=/etc/config/prometheus.yml
+            - --storage.tsdb.path=/data
+            - --web.console.libraries=/etc/prometheus/console_libraries
+            - --web.console.templates=/etc/prometheus/consoles
+            - --web.enable-lifecycle
+            - --query.max-concurrency=1
+            - --query.max-samples=1e+08
+          ports:
+            - containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          resources:
+            {}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+            - name: storage-volume
+              mountPath: /data
+              subPath: ""
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 300
+      volumes:
+        - name: config-volume
+          configMap:
+            name: kubecost-prometheus-server
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: kubecost-prometheus-server

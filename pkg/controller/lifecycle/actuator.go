@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-logr/logr"
 
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/kubecost"
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/constants"
 
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
@@ -22,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -66,18 +68,18 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		return err
 	}
 
-	kubeCostApiKey, err := getKubeCostApiKey(kubeCostSecret.Data)
+	kubeCostConfig, err := getKubeCostConfig(kubeCostSecret.Data)
 	if err != nil {
-		a.logger.Error(err, "Unable to retrieve the KubeCost api key. Check the secret in the garden cluster for the apiKey field.")
+		a.logger.Error(err, "Unable to retrieve the KubeCost config. Check the secret in the garden cluster for the config field.")
 		return err
 	}
 
-	// Create the resource for the flux installation
-	shootResourceKubeCostInstall, err := createShootResourceKubeCostInstall(kubeCostApiKey)
+	// Create the resource for the kubecost installation
+	shootResourceKubeCostInstall, err := createShootResourceKubeCostInstall(kubeCostConfig)
 	if err != nil {
 		return err
 	}
-	// deploy the managed resource for the flux installatation
+	// deploy the managed resource for the kubecost installatation
 	err = managedresources.CreateForShoot(ctx, a.client, extensionNamespace, constants.ManagedResourceNameKubeCostConfig, "shoot-kubecost", true, shootResourceKubeCostInstall)
 	if err != nil {
 		return err
@@ -107,14 +109,20 @@ func (a *actuator) Migrate(ctx context.Context, logger logr.Logger, ex *extensio
 	return a.Delete(ctx, logger, ex)
 }
 
-func getKubeCostApiKey(secretData map[string][]byte) (string, error) {
-	if apiKey, ok := secretData["apiKey"]; ok {
-		return string(apiKey), nil
+func getKubeCostConfig(secretData map[string][]byte) (kubecost.KubeCostConfig, error) {
+	config, ok := secretData["config"]
+	if !ok {
+		return kubecost.KubeCostConfig{}, errors.New("config field not found")
 	}
 
-	return "", errors.New("apiKey field not found")
+	var out kubecost.KubeCostConfig
+	err := yaml.Unmarshal(config, &out)
+	return out, err
 }
 
-func createShootResourceKubeCostInstall(apiKey string) (map[string][]byte, error) {
-	return nil, nil
+func createShootResourceKubeCostInstall(config kubecost.KubeCostConfig) (map[string][]byte, error) {
+	manifest := kubecost.Render(config)
+	return map[string][]byte{
+		"manifest": manifest,
+	}, nil
 }

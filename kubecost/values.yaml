@@ -1,0 +1,6 @@
+global:
+  grafana:
+    enabled: false
+networkCosts:
+  enabled: true
+grafana: null

@@ -135,3 +135,7 @@ get-debug-command:
 		--leader-election=$(LEADER_ELECTION) \
 		--gardener-version="v1.39.0")
 	@true
+
+.PHONEY: generate-kubecost
+generate-kubecost:
+	@helm template kubecost cost-analyzer --repo https://kubecost.github.io/cost-analyzer/ -n kubecost -f kubecost/values.yaml --create-namespace --no-hooks > kubecost/kubecost.yaml

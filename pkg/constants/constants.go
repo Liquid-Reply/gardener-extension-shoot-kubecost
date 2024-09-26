@@ -8,5 +8,5 @@ const (
 
 	extensionServiceName = "extension-" + ServiceName
 
-	ManagedResourceNameKubeCostConfig = extensionServiceName + "-shoot-kubecost-config"
+	ManagedResourceNameKubeCostConfig = extensionServiceName + "-config"
 )
