@@ -1,6 +1,7 @@
 global:
   grafana:
     enabled: false
+    proxy: false
 networkCosts:
   enabled: true
 grafana: null

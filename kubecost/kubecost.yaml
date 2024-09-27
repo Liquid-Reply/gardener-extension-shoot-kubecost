@@ -4,11 +4,11 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kubecost-cost-analyzer
-  namespace: kubecost
+  namespace: kube-system
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -23,24 +23,24 @@ metadata:
     release: kubecost
     heritage: Helm
   name: kubecost-prometheus-server
-  namespace: kubecost
+  namespace: kube-system
 ---
 # Source: cost-analyzer/templates/cost-analyzer-config-map-template.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: kubecost-cost-analyzer
-  namespace: kubecost
+  namespace: kube-system
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
 data:
-    prometheus-alertmanager-endpoint: http://kubecost-prometheus-alertmanager.kubecost
-    prometheus-server-endpoint: http://kubecost-prometheus-server.kubecost
+    prometheus-alertmanager-endpoint: http://kubecost-prometheus-alertmanager.kube-system
+    prometheus-server-endpoint: http://kubecost-prometheus-server.kube-system
     kubecost-token: not-applied
 ---
 # Source: cost-analyzer/templates/cost-analyzer-frontend-config-map-template.yaml
@@ -48,11 +48,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nginx-conf
-  namespace: kubecost
+  namespace: kube-system
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -95,23 +95,20 @@ data:
         text/x-cross-domain-policy;
 
     upstream api {
-        server kubecost-cost-analyzer.kubecost:9001;
+        server kubecost-cost-analyzer.kube-system:9001;
     }
 
     upstream model {
-        server kubecost-cost-analyzer.kubecost:9003;
-    }
-    upstream grafana {
-        server cost-analyzer-grafana.default.svc;
+        server kubecost-cost-analyzer.kube-system:9003;
     }
     upstream forecasting {
-        server kubecost-forecasting.kubecost:5000;
+        server kubecost-forecasting.kube-system:5000;
     }
     upstream aggregator {
-        server kubecost-aggregator.kubecost:9004;
+        server kubecost-aggregator.kube-system:9004;
     }
     upstream cloudCost {
-        server kubecost-cloud-cost.kubecost:9005;
+        server kubecost-cloud-cost.kube-system:9005;
     }
 
     server {
@@ -130,7 +127,7 @@ data:
         location / {
             try_files $uri $uri/ /index.html;
         }
-        add_header ETag "2.4.0";
+        add_header ETag "2.4.1";
         listen 9090;
         listen [::]:9090;
         location /api/ {
@@ -159,16 +156,6 @@ data:
             add_header 'Access-Control-Allow-Methods' 'GET, PUT, POST, DELETE, OPTIONS' always;
             return 404;
         }
-        location /grafana/ {
-            proxy_pass http://grafana/;
-            proxy_redirect off;
-            proxy_http_version 1.1;
-            proxy_set_header Connection "";
-            proxy_set_header  X-Real-IP  $remote_addr;
-            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header Host $http_host;
-        }
-    
     # TODO make aggregator route the default, start special-casing
     # cost-model APIs
 
@@ -747,6 +734,14 @@ data:
             proxy_set_header  X-Real-IP  $remote_addr;
             proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
         }
+        location = /model/diagnostic/nodeCount {
+            proxy_read_timeout          300;
+            proxy_pass http://aggregator/diagnostic/nodeCount;
+            proxy_redirect off;
+            proxy_set_header Connection "";
+            proxy_set_header  X-Real-IP  $remote_addr;
+            proxy_set_header  X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
         location = /model/diagnostic/tableWindowCount {
             proxy_read_timeout          300;
             proxy_pass http://aggregator/diagnostic/tableWindowCount;
@@ -1156,7 +1151,7 @@ data:
                 "carbonEstimatesEnabled": "false",
                 "clusterControllerEnabled": "false",
                 "forecastingEnabled": "true",
-                "chartVersion": "2.4.0",
+                "chartVersion": "2.4.1",
                 "hourlyDataRetention": "49",
                 "dailyDataRetention": "91",
                 "hideDiagnostics": "false",
@@ -1178,11 +1173,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: network-costs-config
-  namespace: kubecost
+  namespace: kube-system
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1209,13 +1204,29 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: smtp-configs
-  namespace: kubecost
+  namespace: kube-system
   labels:
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
+---
+# Source: cost-analyzer/templates/external-grafana-config-map-template.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: external-grafana-config-map
+  namespace: kube-system
+  labels:
+    
+    app.kubernetes.io/name: cost-analyzer
+    helm.sh/chart: cost-analyzer-2.4.1
+    app.kubernetes.io/instance: kubecost
+    app.kubernetes.io/managed-by: Helm
+    app: cost-analyzer
+data:
+  grafanaURL: http://cost-analyzer-grafana.default.svc
 ---
 # Source: cost-analyzer/templates/prometheus-server-configmap.yaml
 apiVersion: v1
@@ -1227,7 +1238,7 @@ metadata:
     release: kubecost
     heritage: Helm
   name: kubecost-prometheus-server
-  namespace: kubecost
+  namespace: kube-system
 data:
   alerting_rules.yml: |
     {}
@@ -1447,11 +1458,11 @@ kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: kubecost-cost-analyzer
-  namespace: kubecost
+  namespace: kube-system
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1472,7 +1483,7 @@ metadata:
     release: kubecost
     heritage: Helm
   name: kubecost-prometheus-server
-  namespace: kubecost
+  namespace: kube-system
 spec:
   accessModes:
     - ReadWriteOnce
@@ -1488,7 +1499,7 @@ metadata:
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1613,7 +1624,7 @@ metadata:
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1624,7 +1635,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: kubecost-cost-analyzer
-    namespace: kubecost
+    namespace: kube-system
 ---
 # Source: cost-analyzer/templates/prometheus-server-clusterrolebinding.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1639,7 +1650,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: kubecost-prometheus-server
-    namespace: kubecost
+    namespace: kube-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -1649,12 +1660,12 @@ roleRef:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  namespace: kubecost
+  namespace: kube-system
   name: kubecost-cost-analyzer
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1682,11 +1693,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: kubecost-cost-analyzer
-  namespace: kubecost
+  namespace: kube-system
   labels:
     
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1697,17 +1708,17 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: kubecost-cost-analyzer
-    namespace: kubecost
+    namespace: kube-system
 ---
 # Source: cost-analyzer/templates/aggregator-cloud-cost-service.yaml
 kind: Service
 apiVersion: v1
 metadata:
   name: kubecost-cloud-cost
-  namespace: kubecost
+  namespace: kube-system
   labels:
 
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: cost-analyzer
     app.kubernetes.io/instance: kubecost
@@ -1729,10 +1740,10 @@ kind: Service
 apiVersion: v1
 metadata:
   name: kubecost-aggregator
-  namespace: kubecost
+  namespace: kube-system
   labels:
 
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/managed-by: Helm
     app: aggregator
 spec:
@@ -1752,11 +1763,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: kubecost-network-costs
-  namespace: kubecost
+  namespace: kube-system
   labels:
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/name: network-costs
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/managed-by: Helm
     app: kubecost-network-costs
 spec:
@@ -1775,10 +1786,10 @@ kind: Service
 apiVersion: v1
 metadata:
   name: kubecost-cost-analyzer
-  namespace: kubecost
+  namespace: kube-system
   labels:
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1802,9 +1813,9 @@ kind: Service
 apiVersion: v1
 metadata:
   name: kubecost-forecasting
-  namespace: kubecost
+  namespace: kube-system
   labels:
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: forecasting
     app.kubernetes.io/instance: kubecost
@@ -1830,7 +1841,7 @@ metadata:
     release: kubecost
     heritage: Helm
   name: kubecost-prometheus-server
-  namespace: kubecost
+  namespace: kube-system
 spec:
   ports:
     - name: http
@@ -1849,11 +1860,11 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: kubecost-network-costs
-  namespace: kubecost
+  namespace: kube-system
   labels:
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/name: network-costs
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/managed-by: Helm
     app: kubecost-network-costs
 spec:
@@ -1867,7 +1878,7 @@ spec:
       labels:
         app.kubernetes.io/instance: kubecost
         app.kubernetes.io/name: network-costs
-        helm.sh/chart: cost-analyzer-2.4.0
+        helm.sh/chart: cost-analyzer-2.4.1
         app.kubernetes.io/managed-by: Helm
         app: kubecost-network-costs
     spec:
@@ -1923,10 +1934,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kubecost-cost-analyzer
-  namespace: kubecost
+  namespace: kube-system
   labels:
     app.kubernetes.io/name: cost-analyzer
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/instance: kubecost
     app.kubernetes.io/managed-by: Helm
     app: cost-analyzer
@@ -1949,7 +1960,7 @@ spec:
         app.kubernetes.io/instance: kubecost
         app: cost-analyzer
       annotations:
-        checksum/configs: b694428a756844bae536701738dd50c8c3ee1882d136419dcd414dce9257255e
+        checksum/configs: 61bcd577617f9613226aaa2bc1e34fe0f2699c2f6c329c547670d0f4f2975e63
     spec:
       securityContext:
         fsGroup: 1001
@@ -1975,7 +1986,7 @@ spec:
             claimName: kubecost-cost-analyzer
       initContainers:
       containers:
-        - image: gcr.io/kubecost1/cost-model:prod-2.4.0
+        - image: gcr.io/kubecost1/cost-model:prod-2.4.1
           name: cost-model
           securityContext:
             allowPrivilegeEscalation: false
@@ -2095,7 +2106,7 @@ spec:
             - name: RELEASE_NAME
               value: kubecost
             - name: KUBECOST_NAMESPACE
-              value: kubecost
+              value: kube-system
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -2110,7 +2121,7 @@ spec:
               value: "true"
             - name: DIAGNOSTICS_RUN_IN_COST_MODEL
               value: "false"
-        - image: gcr.io/kubecost1/frontend:prod-2.4.0
+        - image: gcr.io/kubecost1/frontend:prod-2.4.1
           env:
             - name: GET_HOSTS_FROM
               value: dns
@@ -2160,7 +2171,7 @@ spec:
               - ALL
             privileged: false
             readOnlyRootFilesystem: true
-          image: gcr.io/kubecost1/cost-model:prod-2.4.0
+          image: gcr.io/kubecost1/cost-model:prod-2.4.1
           readinessProbe:
             httpGet:
               path: /healthz
@@ -2209,12 +2220,12 @@ spec:
             - name: DB_TRIM_MEMORY_ON_CLOSE
               value: "true"
             - name: KUBECOST_NAMESPACE
-              value: kubecost
+              value: kube-system
             - name: GRAFANA_ENABLED
               value: "false"
         
         - name: cloud-cost
-          image: gcr.io/kubecost1/cost-model:prod-2.4.0
+          image: gcr.io/kubecost1/cost-model:prod-2.4.1
           
           readinessProbe:
             httpGet:
@@ -2260,9 +2271,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kubecost-forecasting
-  namespace: kubecost
+  namespace: kube-system
   labels:
-    helm.sh/chart: cost-analyzer-2.4.0
+    helm.sh/chart: cost-analyzer-2.4.1
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: forecasting
     app.kubernetes.io/instance: kubecost
@@ -2358,7 +2369,7 @@ metadata:
     release: kubecost
     heritage: Helm
   name: kubecost-prometheus-server
-  namespace: kubecost
+  namespace: kube-system
 spec:
   selector:
     matchLabels:
@@ -2372,7 +2383,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/configs: b694428a756844bae536701738dd50c8c3ee1882d136419dcd414dce9257255e
+        checksum/configs: 61bcd577617f9613226aaa2bc1e34fe0f2699c2f6c329c547670d0f4f2975e63
       labels:
         component: "server"
         app: prometheus

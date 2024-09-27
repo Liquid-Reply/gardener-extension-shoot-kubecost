@@ -138,4 +138,4 @@ get-debug-command:
 
 .PHONEY: generate-kubecost
 generate-kubecost:
-	@helm template kubecost cost-analyzer --repo https://kubecost.github.io/cost-analyzer/ -n kubecost -f kubecost/values.yaml --create-namespace --no-hooks > kubecost/kubecost.yaml
+	@helm template kubecost cost-analyzer --repo https://kubecost.github.io/cost-analyzer/ -n kube-system -f kubecost/values.yaml --no-hooks > kubecost/kubecost.yaml

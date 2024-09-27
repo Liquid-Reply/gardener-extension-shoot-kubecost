@@ -17,11 +17,28 @@ type KubeCostConfig struct {
 	ApiKey string `yaml:"api_key"`
 }
 
-var labelsOverlay string = `#@ load("@ytt:overlay", "overlay")
+var grafanaOverlay string = `#@ load("@ytt:overlay", "overlay")
 
-#@overlay/match by=overlay.all , expects="1+"
+#@overlay/match by=overlay.subset({"metadata": {"name": "external-grafana-config-map"}})
+#@overlay/remove
+`
+
+var pvcOverlay string = `#@ load("@ytt:overlay", "overlay")
+
+#@overlay/match by=overlay.subset({"kind": "PersistentVolumeClaim"}), expects="1+"
 ---
 metadata:
+  #@overlay/match missing_ok=True
+  annotations:
+    resources.gardener.cloud/ignore: "true"
+`
+
+var labelsOverlay string = `#@ load("@ytt:overlay", "overlay")
+
+#@overlay/match by=overlay.all, expects="1+"
+---
+metadata:
+  #@overlay/match missing_ok=True
   labels:
     #@overlay/match missing_ok=True
     app.kubernetes.io/managed-by: gardener-extension-shoot-kubecost
@@ -42,6 +59,8 @@ func Render(config KubeCostConfig) []byte {
 
 	var files []*yttfiles.File
 	files = append(files, templateAsFile("manifest.yaml", manifest))
+	files = append(files, templateAsFile("grafana.yaml", grafanaOverlay))
+	files = append(files, templateAsFile("pvc.yaml", pvcOverlay))
 	files = append(files, templateAsFile("api-key.yaml", kubeCostTokenOverlay(config.ApiKey)))
 	files = append(files, templateAsFile("labels.yaml", labelsOverlay))
 	inputs := yttcmd.Input{Files: yttfiles.NewSortedFiles(files)}

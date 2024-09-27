@@ -62,15 +62,16 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 	a.logger.Info("reconciling", "extension ns", extensionNamespace, "project ns", projectNamespace)
 
 	// fetch the secret holding the per-project configuration for the shoot-kubecost installation
-	kubeCostSecret := corev1.Secret{}
-	err = a.clientGardenlet.Get(ctx, types.NamespacedName{Namespace: projectNamespace, Name: "shoot-kubecost"}, &kubeCostSecret)
+	kubeCostConfigMap := corev1.ConfigMap{}
+	err = a.clientGardenlet.Get(ctx, types.NamespacedName{Namespace: projectNamespace, Name: "shoot-kubecost"}, &kubeCostConfigMap)
 	if err != nil {
+		a.logger.Error(err, "Unable to retrieve the KubeCost config. Make sure the configmap shoot-kubecost exists in the project namespace.")
 		return err
 	}
 
-	kubeCostConfig, err := getKubeCostConfig(kubeCostSecret.Data)
+	kubeCostConfig, err := getKubeCostConfig(kubeCostConfigMap.Data)
 	if err != nil {
-		a.logger.Error(err, "Unable to retrieve the KubeCost config. Check the secret in the garden cluster for the config field.")
+		a.logger.Error(err, "Unable to retrieve the KubeCost config. Check the configmap shoot-kubecost in the garden cluster for the config field.")
 		return err
 	}
 
@@ -109,14 +110,14 @@ func (a *actuator) Migrate(ctx context.Context, logger logr.Logger, ex *extensio
 	return a.Delete(ctx, logger, ex)
 }
 
-func getKubeCostConfig(secretData map[string][]byte) (kubecost.KubeCostConfig, error) {
-	config, ok := secretData["config"]
+func getKubeCostConfig(cmData map[string]string) (kubecost.KubeCostConfig, error) {
+	config, ok := cmData["config"]
 	if !ok {
 		return kubecost.KubeCostConfig{}, errors.New("config field not found")
 	}
 
 	var out kubecost.KubeCostConfig
-	err := yaml.Unmarshal(config, &out)
+	err := yaml.Unmarshal([]byte(config), &out)
 	return out, err
 }
 
