@@ -5,11 +5,13 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"errors"
 	"time"
 
+	"github.com/andybalholm/brotli"
 	"github.com/go-logr/logr"
 
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/kubecost"
@@ -141,7 +143,15 @@ func getKubeCostConfig(cmData map[string]string) (kubecost.KubeCostConfig, error
 
 func createShootResourceKubeCostInstall(config kubecost.KubeCostConfig) (map[string][]byte, error) {
 	manifest := kubecost.Render(config)
+	var buf bytes.Buffer
+	w := brotli.NewWriterV2(&buf, 7)
+	if _, err := w.Write(manifest); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 	return map[string][]byte{
-		"manifest": manifest,
+		"kubecost.br": buf.Bytes(),
 	}, nil
 }
