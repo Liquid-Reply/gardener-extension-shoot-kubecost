@@ -8,6 +8,7 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -44,13 +45,13 @@ func NewActuator(client client.Client) extension.Actuator {
 }
 
 type actuator struct {
-	logger          logr.Logger   // logger
+	logger          logr.Logger
 	client          client.Client // seed cluster
 	clientGardenlet client.Client // garden cluster
 	decoder         runtime.Decoder
 }
 
-// Reconcile the Extension resource.
+// Reconcile the Extension resource
 func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	// get the shoot and the project namespace
 	extensionNamespace := ex.GetNamespace()
@@ -89,23 +90,40 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 	return nil
 }
 
-// Delete the Extension resource.
+// Delete the Extension resource
 func (a *actuator) Delete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
-	a.logger.Info("Hello World, I just entered the Delete method")
+	namespace := ex.GetNamespace()
+	twoMinutes := 2 * time.Minute
+
+	timeoutShootCtx, cancelShootCtx := context.WithTimeout(ctx, twoMinutes)
+	defer cancelShootCtx()
+
+	if err := managedresources.SetKeepObjects(ctx, a.client, namespace, constants.ManagedResourceNameKubeCostConfig, false); err != nil {
+		return err
+	}
+
+	if err := managedresources.DeleteForShoot(ctx, a.client, namespace, constants.ManagedResourceNameKubeCostConfig); err != nil {
+		return err
+	}
+
+	if err := managedresources.WaitUntilDeleted(timeoutShootCtx, a.client, namespace, constants.ManagedResourceNameKubeCostConfig); err != nil {
+		return err
+	}
+
 	return nil
 }
 
+// ForceDelete the Extension resource
 func (a *actuator) ForceDelete(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
-	a.logger.Info("Hello World, I just entered the ForceDelete method")
-	return nil
+	return a.Delete(ctx, logger, ex)
 }
 
-// Restore the Extension resource.
+// Restore the Extension resource
 func (a *actuator) Restore(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	return a.Reconcile(ctx, logger, ex)
 }
 
-// Migrate the Extension resource.
+// Migrate the Extension resource
 func (a *actuator) Migrate(ctx context.Context, logger logr.Logger, ex *extensionsv1alpha1.Extension) error {
 	return a.Delete(ctx, logger, ex)
 }
