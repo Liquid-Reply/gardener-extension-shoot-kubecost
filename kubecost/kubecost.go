@@ -1,6 +1,7 @@
 package kubecost
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
 	yttui "carvel.dev/ytt/pkg/cmd/ui"
 	yttfiles "carvel.dev/ytt/pkg/files"
+	"github.com/andybalholm/brotli"
 )
 
 //go:embed kubecost.yaml
@@ -53,7 +55,7 @@ data:
 `, token)
 }
 
-func Render(config KubeCostConfig) []byte {
+func Render(config KubeCostConfig, compress bool) ([]byte, error) {
 	opts := yttcmd.NewOptions()
 	noopUI := yttui.NewCustomWriterTTY(false, os.Stderr, os.Stderr)
 
@@ -67,13 +69,24 @@ func Render(config KubeCostConfig) []byte {
 
 	output := opts.RunWithFiles(inputs, noopUI)
 	if output.Err != nil {
-		panic(output.Err)
+		return nil, output.Err
 	}
-	outputS, err := output.DocSet.AsBytes()
+	manifest, err := output.DocSet.AsBytes()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return outputS
+	if compress {
+		var buf bytes.Buffer
+		w := brotli.NewWriterV2(&buf, 7)
+		if _, err := w.Write(manifest); err != nil {
+			return nil, err
+		}
+		if err := w.Close(); err != nil {
+			return nil, err
+		}
+		manifest = buf.Bytes()
+	}
+	return manifest, nil
 }
 
 type noopWriter struct{}

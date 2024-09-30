@@ -7,8 +7,11 @@ import (
 )
 
 func main() {
-	out := kubecost.Render(kubecost.KubeCostConfig{
+	out, err := kubecost.Render(kubecost.KubeCostConfig{
 		ApiKey: "my-kubecost-key",
-	})
+	}, true)
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(string(out))
 }
