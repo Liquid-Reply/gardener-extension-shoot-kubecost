@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // NewActuator returns an actuator responsible for Extension resources.
@@ -40,12 +39,10 @@ func NewActuator(client client.Client) extension.Actuator {
 	return &actuator{
 		client:          client,
 		clientGardenlet: clientGardenlet,
-		logger:          log.Log.WithName("FirstLogger"),
 	}
 }
 
 type actuator struct {
-	logger          logr.Logger
 	client          client.Client // seed cluster
 	clientGardenlet client.Client // garden cluster
 	decoder         runtime.Decoder
@@ -60,19 +57,20 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		return err
 	}
 	projectNamespace := shoot.GetNamespace()
-	a.logger.Info("reconciling", "extension ns", extensionNamespace, "project ns", projectNamespace)
+	logger = logger.WithValues("project", projectNamespace)
+	logger.Info("Reconciling")
 
 	// fetch the secret holding the per-project configuration for the shoot-kubecost installation
 	kubeCostConfigMap := corev1.ConfigMap{}
 	err = a.clientGardenlet.Get(ctx, types.NamespacedName{Namespace: projectNamespace, Name: "shoot-kubecost"}, &kubeCostConfigMap)
 	if err != nil {
-		a.logger.Error(err, "Unable to retrieve the KubeCost config. Make sure the configmap shoot-kubecost exists in the project namespace.")
+		logger.Error(err, "Unable to retrieve the KubeCost config. Make sure the configmap shoot-kubecost exists in the project namespace.")
 		return err
 	}
 
 	kubeCostConfig, err := getKubeCostConfig(kubeCostConfigMap.Data)
 	if err != nil {
-		a.logger.Error(err, "Unable to retrieve the KubeCost config. Check the configmap shoot-kubecost in the garden cluster for the config field.")
+		logger.Error(err, "Unable to retrieve the KubeCost config. Check the configmap shoot-kubecost in the garden cluster for the config field.")
 		return err
 	}
 
@@ -82,6 +80,7 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 		return err
 	}
 	// deploy the managed resource for the kubecost installatation
+	logger.Info("Creating ManagedResource with KubeCost manifest", "name", constants.ManagedResourceNameKubeCostConfig)
 	err = managedresources.CreateForShoot(ctx, a.client, extensionNamespace, constants.ManagedResourceNameKubeCostConfig, "shoot-kubecost", true, shootResourceKubeCostInstall)
 	if err != nil {
 		return err
@@ -102,10 +101,12 @@ func (a *actuator) Delete(ctx context.Context, logger logr.Logger, ex *extension
 		return err
 	}
 
+	logger.Info("Deleting ManagedResource", "name", constants.ManagedResourceNameKubeCostConfig)
 	if err := managedresources.DeleteForShoot(ctx, a.client, namespace, constants.ManagedResourceNameKubeCostConfig); err != nil {
 		return err
 	}
 
+	logger.Info("Waiting until ManagedResource is deleted", "name", constants.ManagedResourceNameKubeCostConfig)
 	if err := managedresources.WaitUntilDeleted(timeoutShootCtx, a.client, namespace, constants.ManagedResourceNameKubeCostConfig); err != nil {
 		return err
 	}
