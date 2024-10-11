@@ -10,6 +10,7 @@ import (
 
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/constants"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -27,8 +28,10 @@ type AddOptions struct {
 
 // AddToManager adds a shoot-kubecost Lifecycle controller to the given Controller Manager.
 func AddToManager(ctx context.Context, mgr manager.Manager) error {
+	decoder := serializer.NewCodecFactory(mgr.GetScheme(), serializer.EnableStrict).UniversalDecoder()
+
 	return extension.Add(ctx, mgr, extension.AddArgs{
-		Actuator:          NewActuator(mgr.GetClient()),
+		Actuator:          NewActuator(mgr.GetClient(), decoder),
 		ControllerOptions: DefaultAddOptions.ControllerOptions,
 		Name:              "shoot_kubecost_lifecycle_controller",
 		FinalizerSuffix:   constants.ExtensionType,

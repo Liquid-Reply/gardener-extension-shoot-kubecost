@@ -7,11 +7,13 @@ package lifecycle
 import (
 	"context"
 	_ "embed"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
 
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/kubecost"
+	api "github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/apis/config"
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/constants"
 
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
@@ -25,9 +27,10 @@ import (
 )
 
 // NewActuator returns an actuator responsible for Extension resources.
-func NewActuator(c client.Client) extension.Actuator {
+func NewActuator(c client.Client, decoder runtime.Decoder) extension.Actuator {
 	return &actuator{
-		client: c,
+		client:  c,
+		decoder: decoder,
 	}
 }
 
@@ -48,10 +51,9 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 	logger = logger.WithValues("project", projectNamespace)
 	logger.Info("Reconciling")
 
-	kubeCostConfig, err := getKubeCostConfig(ex.Spec.ProviderConfig.Raw)
-	if err != nil {
-		logger.Error(err, "Unable to parse the KubeCost config. Check the providerConfig field of the Extension resource.")
-		return err
+	kubeCostConfig := &api.Configuration{}
+	if _, _, err := a.decoder.Decode(ex.Spec.ProviderConfig.Raw, nil, kubeCostConfig); err != nil {
+		return fmt.Errorf("failed to decode provider config: %w", err)
 	}
 
 	// Create the resource for the kubecost installation
@@ -115,7 +117,7 @@ func getKubeCostConfig(config []byte) (kubecost.KubeCostConfig, error) {
 	return out, err
 }
 
-func createShootResourceKubeCostInstall(config kubecost.KubeCostConfig) (map[string][]byte, error) {
+func createShootResourceKubeCostInstall(config *api.Configuration) (map[string][]byte, error) {
 	manifest, err := kubecost.Render(config, true)
 	if err != nil {
 		return nil, err

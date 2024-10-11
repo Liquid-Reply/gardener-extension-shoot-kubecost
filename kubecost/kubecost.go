@@ -10,6 +10,8 @@ import (
 	yttui "carvel.dev/ytt/pkg/cmd/ui"
 	yttfiles "carvel.dev/ytt/pkg/files"
 	"github.com/andybalholm/brotli"
+
+	api "github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/apis/config"
 )
 
 //go:embed kubecost.yaml
@@ -55,7 +57,7 @@ data:
 `, token)
 }
 
-func Render(config KubeCostConfig, compress bool) ([]byte, error) {
+func Render(config *api.Configuration, compress bool) ([]byte, error) {
 	opts := yttcmd.NewOptions()
 	noopUI := yttui.NewCustomWriterTTY(false, os.Stderr, os.Stderr)
 
@@ -63,7 +65,7 @@ func Render(config KubeCostConfig, compress bool) ([]byte, error) {
 	files = append(files, templateAsFile("manifest.yaml", manifest))
 	files = append(files, templateAsFile("grafana.yaml", grafanaOverlay))
 	files = append(files, templateAsFile("pvc.yaml", pvcOverlay))
-	files = append(files, templateAsFile("api-key.yaml", kubeCostTokenOverlay(config.ApiKey)))
+	files = append(files, templateAsFile("api-key.yaml", kubeCostTokenOverlay(config.ApiToken)))
 	files = append(files, templateAsFile("labels.yaml", labelsOverlay))
 	inputs := yttcmd.Input{Files: yttfiles.NewSortedFiles(files)}
 

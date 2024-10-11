@@ -11,6 +11,8 @@ import (
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/util"
 	"github.com/gardener/gardener/pkg/logger"
+	apisconfig "github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/apis/config"
+	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/apis/config/v1alpha1"
 	"github.com/liquid-reply/gardener-extension-shoot-kubecost/pkg/controller/lifecycle"
 
 	"github.com/spf13/cobra"
@@ -79,6 +81,14 @@ func (o *Options) run(ctx context.Context) error {
 	}
 
 	if err := extensionscontroller.AddToScheme(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("could not update manager scheme: %s", err)
+	}
+
+	if err := apisconfig.AddToScheme(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("could not update manager scheme: %s", err)
+	}
+
+	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("could not update manager scheme: %s", err)
 	}
 
