@@ -7,7 +7,6 @@ package lifecycle
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -17,35 +16,24 @@ import (
 
 	"github.com/gardener/gardener/extensions/pkg/controller/extension"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
-	gardenclient "github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/extensions"
 	managedresources "github.com/gardener/gardener/pkg/utils/managedresources"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // NewActuator returns an actuator responsible for Extension resources.
-func NewActuator(client client.Client) extension.Actuator {
-	clientGardenlet := client
-	clientInterface, err := gardenclient.NewClientFromSecret(context.Background(), client, "garden", "gardenlet-kubeconfig")
-	if err == nil {
-		clientInterface.Start(context.Background())
-		clientGardenlet = clientInterface.Client()
-	}
+func NewActuator(c client.Client) extension.Actuator {
 	return &actuator{
-		client:          client,
-		clientGardenlet: clientGardenlet,
+		client: c,
 	}
 }
 
 type actuator struct {
-	client          client.Client // seed cluster
-	clientGardenlet client.Client // garden cluster
-	decoder         runtime.Decoder
+	client  client.Client // seed cluster
+	decoder runtime.Decoder
 }
 
 // Reconcile the Extension resource
@@ -60,17 +48,9 @@ func (a *actuator) Reconcile(ctx context.Context, logger logr.Logger, ex *extens
 	logger = logger.WithValues("project", projectNamespace)
 	logger.Info("Reconciling")
 
-	// fetch the secret holding the per-project configuration for the shoot-kubecost installation
-	kubeCostConfigMap := corev1.ConfigMap{}
-	err = a.clientGardenlet.Get(ctx, types.NamespacedName{Namespace: projectNamespace, Name: "shoot-kubecost"}, &kubeCostConfigMap)
+	kubeCostConfig, err := getKubeCostConfig(ex.Spec.ProviderConfig.Raw)
 	if err != nil {
-		logger.Error(err, "Unable to retrieve the KubeCost config. Make sure the configmap shoot-kubecost exists in the project namespace.")
-		return err
-	}
-
-	kubeCostConfig, err := getKubeCostConfig(kubeCostConfigMap.Data)
-	if err != nil {
-		logger.Error(err, "Unable to retrieve the KubeCost config. Check the configmap shoot-kubecost in the garden cluster for the config field.")
+		logger.Error(err, "Unable to parse the KubeCost config. Check the providerConfig field of the Extension resource.")
 		return err
 	}
 
@@ -129,14 +109,9 @@ func (a *actuator) Migrate(ctx context.Context, logger logr.Logger, ex *extensio
 	return a.Delete(ctx, logger, ex)
 }
 
-func getKubeCostConfig(cmData map[string]string) (kubecost.KubeCostConfig, error) {
-	config, ok := cmData["config"]
-	if !ok {
-		return kubecost.KubeCostConfig{}, errors.New("config field not found")
-	}
-
+func getKubeCostConfig(config []byte) (kubecost.KubeCostConfig, error) {
 	var out kubecost.KubeCostConfig
-	err := yaml.Unmarshal([]byte(config), &out)
+	err := yaml.Unmarshal(config, &out)
 	return out, err
 }
 
