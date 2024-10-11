@@ -85,10 +85,10 @@ github.com/fsnotify/fsnotify
 ## explicit; go 1.22.0
 github.com/gardener/cert-management/pkg/apis/cert
 github.com/gardener/cert-management/pkg/apis/cert/v1alpha1
-# github.com/gardener/etcd-druid v0.22.5
+# github.com/gardener/etcd-druid v0.22.7
 ## explicit; go 1.21
 github.com/gardener/etcd-druid/api/v1alpha1
-# github.com/gardener/gardener v1.104.0
+# github.com/gardener/gardener v1.105.0
 ## explicit; go 1.23.0
 github.com/gardener/gardener/extensions/pkg/apis/config
 github.com/gardener/gardener/extensions/pkg/controller
@@ -600,7 +600,7 @@ helm.sh/helm/v3/pkg/ignore
 helm.sh/helm/v3/pkg/release
 helm.sh/helm/v3/pkg/releaseutil
 helm.sh/helm/v3/pkg/time
-# istio.io/api v1.22.4
+# istio.io/api v1.22.5
 ## explicit; go 1.22
 istio.io/api/analysis/v1alpha1
 istio.io/api/meta/v1alpha1
@@ -983,7 +983,7 @@ k8s.io/kubelet/pkg/apis
 ## explicit; go 1.21
 k8s.io/metrics/pkg/apis/metrics
 k8s.io/metrics/pkg/apis/metrics/v1beta1
-# k8s.io/utils v0.0.0-20240902221715-702e33fdd3c3
+# k8s.io/utils v0.0.0-20240921022957-49e7df575cb6
 ## explicit; go 1.18
 k8s.io/utils/buffer
 k8s.io/utils/clock
