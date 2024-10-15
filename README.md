@@ -14,6 +14,24 @@ This controller implements Gardener's extension contract for the `shoot-kubecost
 
 Please find more information regarding the extensibility concepts and a detailed proposal [here](https://github.com/gardener/gardener/blob/master/docs/proposals/01-extensibility.md).
 
+## Installation
+
+Download the controller-registration.yaml from the GitHub releases. Install this manifest in the Garden cluster to enable the controller.
+
+To configure the extension for a `Shoot`, add this to the manifest:
+
+```yaml
+  extensions:
+    - ...
+    - type: shoot-kubecost
+      providerConfig:
+        apiVersion: kubecost.extensions.config.gardener.cloud/v1alpha1
+        kind: Configuration
+        apiToken: xxxxxxxxxxxxxxxxxxxx
+```
+
+Configuring the `apiToken` is required.
+
 ## Learn more!
 
 Please find further resources about out project here:
@@ -25,8 +43,3 @@ Please find further resources about out project here:
 * [Extensibility API documentation](https://github.com/gardener/gardener/tree/master/docs/extensions)
 * [Gardener Extensions Golang library](https://godoc.org/github.com/gardener/gardener/extensions/pkg)
 * [Gardener API Reference](https://gardener.cloud/api-reference/)
-
-
-
-
-
