@@ -8,7 +8,7 @@ require (
 	carvel.dev/ytt v0.50.0
 	github.com/ahmetb/gen-crd-api-reference-docs v0.3.0
 	github.com/andybalholm/brotli v1.1.0
-	github.com/gardener/gardener v1.105.0
+	github.com/gardener/gardener v1.105.1
 	github.com/go-logr/logr v1.4.2
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/tools v0.25.0
