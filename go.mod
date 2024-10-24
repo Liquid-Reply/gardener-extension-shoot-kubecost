@@ -13,7 +13,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/tools v0.25.0
 	k8s.io/api v0.29.9
-	k8s.io/apimachinery v0.30.5
+	k8s.io/apimachinery v0.30.6
 	k8s.io/code-generator v0.29.9
 	k8s.io/component-base v0.29.9
 	sigs.k8s.io/controller-runtime v0.17.6
