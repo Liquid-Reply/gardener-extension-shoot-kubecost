@@ -7,7 +7,7 @@ replace k8s.io/code-generator => k8s.io/code-generator v0.29.9
 require (
 	carvel.dev/ytt v0.50.0
 	github.com/ahmetb/gen-crd-api-reference-docs v0.3.0
-	github.com/andybalholm/brotli v1.1.0
+	github.com/andybalholm/brotli v1.1.1
 	github.com/gardener/gardener v1.105.0
 	github.com/go-logr/logr v1.4.2
 	github.com/spf13/cobra v1.8.1
