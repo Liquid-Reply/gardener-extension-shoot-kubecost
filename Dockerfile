@@ -10,7 +10,7 @@ COPY . .
 RUN make install
 
 ############# gardener-extension-shoot-kubecost
-FROM alpine:3.20.3 AS gardener-extension-shoot-kubecost
+FROM alpine:3.21.0 AS gardener-extension-shoot-kubecost
 
 COPY charts /charts
 COPY --from=builder /go/bin/gardener-extension-shoot-kubecost /gardener-extension-shoot-kubecost
