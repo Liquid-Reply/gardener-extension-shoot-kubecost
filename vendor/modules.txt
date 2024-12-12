@@ -1,5 +1,5 @@
-# carvel.dev/ytt v0.50.0
-## explicit; go 1.22.5
+# carvel.dev/ytt v0.51.1
+## explicit; go 1.23.3
 carvel.dev/ytt/pkg/cmd/template
 carvel.dev/ytt/pkg/cmd/ui
 carvel.dev/ytt/pkg/filepos

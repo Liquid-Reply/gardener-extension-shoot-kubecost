@@ -1,11 +1,12 @@
 module github.com/liquid-reply/gardener-extension-shoot-kubecost
 
 go 1.23.1
+toolchain go1.23.4
 
 replace k8s.io/code-generator => k8s.io/code-generator v0.29.9
 
 require (
-	carvel.dev/ytt v0.50.0
+	carvel.dev/ytt v0.51.1
 	github.com/ahmetb/gen-crd-api-reference-docs v0.3.0
 	github.com/andybalholm/brotli v1.1.0
 	github.com/gardener/gardener v1.105.0
